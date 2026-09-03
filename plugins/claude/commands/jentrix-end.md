@@ -2,7 +2,7 @@
 description: End the connected Jentrix session (pushes the final artifacts, verifies capture, stores the RUN_SUMMARY)
 allowed-tools: Bash(jentrix session:*), Bash(jentrix push:*), Bash(jentrix artifact:*), Bash(jentrix column:*), Bash(jentrix task:*), Bash(jentrix tool:*)
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/claude in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 End the connected Jentrix session honestly. For an ALIGNED session (the MVP
 pipeline), the typed artifacts ARE the record — push them before closing:

@@ -2,7 +2,7 @@
 description: Review a Jentrix session's typed artifacts by category (input → plan → decision → output → issue → gap → learning → record), check the readiness contract, and post the verdict as a task comment
 allowed-tools: Bash(jentrix tool:*), Bash(jentrix artifact:*), Bash(jentrix session:*), Bash(jentrix comment:*)
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/claude in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 Run the category walk over one session's record (docs: Reviewing a session).
 Read-only until the final comment; never modify the tree, the board, or the

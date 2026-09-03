@@ -2,7 +2,7 @@
 name: jentrix-connect
 description: Connect the current Codex task to Jentrix (session anchor + capture in the folder's workspace).
 ---
-<!-- Source of truth: cli/plugins/codex. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/codex in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 # Connect this Codex task
 

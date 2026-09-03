@@ -2,7 +2,7 @@
 description: Write a distilled state-of-play for this session and push it as a typed Jentrix artifact
 allowed-tools: Bash(jentrix push:*), Bash(jentrix session:*), Bash(jentrix task:*), Bash(jentrix column:*)
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/claude in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 Write down what this session currently knows, and push it.
 

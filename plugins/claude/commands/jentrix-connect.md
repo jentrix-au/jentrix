@@ -2,7 +2,7 @@
 description: Connect this Claude Code session to Jentrix (session anchor + capture in the folder's workspace)
 allowed-tools: Bash(jentrix session:*), Bash(jentrix folder:*)
 ---
-<!-- Source of truth: cli/plugins/claude. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/claude in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 Run this exact command with the Bash tool and relay its output to the user:
 
