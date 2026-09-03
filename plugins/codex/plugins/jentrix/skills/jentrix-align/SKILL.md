@@ -2,7 +2,7 @@
 name: jentrix-align
 description: Align the current Codex task to a Jentrix work item (task + accountable owner) with a server-confirmed snapshot.
 ---
-<!-- Source of truth: cli/plugins/codex. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/codex in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 # Align this Codex task
 
@@ -24,7 +24,12 @@ wizard is retired, and a Project is an optional task label, never part of it.
    line rather than summarizing it away.
 4. `FOLDER_NOT_ALIGNED` means the checkout has no workspace binding: run
    `jentrix folder align`, then retry. Never invent a workspace or task id.
-5. Settings ride a same-task re-align without fragmenting attribution:
+5. Move the aligned task to the board's working column when you start work on
+   it: read the real columns (`jentrix column list --board <boardId> --json`) and
+   move with `jentrix task move --task <taskId> --to-column-id <columnId>`.
+   `$jentrix-end` moves it to In review when the work is genuinely finished — the
+   terminal move is the operator's Accept, never yours.
+6. Settings ride a same-task re-align without fragmenting attribution:
    `--owner`, `--agent`, `--agent-emoji`, `--budget|--no-budget`,
    `--capture|--no-capture`, `--skeleton|--no-skeleton`. Pass only what the
    operator asked for. Project labels are separate:

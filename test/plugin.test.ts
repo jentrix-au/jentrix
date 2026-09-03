@@ -1556,3 +1556,107 @@ describe("Codex: a dangling row of ours that breaks the listing itself (open-cli
     );
   });
 });
+
+describe("activation proof reads the version the provider reports (JEN-330)", () => {
+  const codexScript = (row: Record<string, unknown>) => ({
+    "plugin marketplace list --json": [
+      { code: 0, stdout: '{"marketplaces":[]}', stderr: "" },
+      codexCatalog(CODEX_PLUGIN_DIR),
+    ],
+    "plugin list --json": {
+      code: 0,
+      stdout: JSON.stringify({ installed: [row] }),
+      stderr: "",
+    },
+    "plugin marketplace remove stacks": {
+      code: 1,
+      stdout: "",
+      stderr: "not configured",
+    },
+  });
+
+  it("codex: a stale by-version cache answering installed:true is NOT ready", async () => {
+    // `codex plugin add` no-ops on an already-installed plugin, so the row
+    // used to pass on `installed: true` alone with last month's skills in place.
+    const { deps, err } = makeDeps(
+      {},
+      codexScript({ pluginId: "jentrix@jentrix", installed: true, version: "0.2.7" }),
+    );
+    assert.notEqual(await runPluginInstall(deps, "codex"), 0);
+    assert.ok(
+      err.some((l) => /reports jentrix@jentrix at version 0\.2\.7, expected 0\.2\.8/.test(l)),
+      err.join("\n"),
+    );
+  });
+
+  it("codex: the reported version and a source under the registered directory pass", async () => {
+    const { deps, err } = makeDeps(
+      {},
+      codexScript({
+        pluginId: "jentrix@jentrix",
+        installed: true,
+        version: "0.2.8",
+        source: { source: "local", path: `${CODEX_PLUGIN_DIR}/plugins/jentrix` },
+      }),
+    );
+    assert.equal(await runPluginInstall(deps, "codex"), 0, err.join("\n"));
+  });
+
+  it("codex: a source outside the registered directory is another copy, not ready", async () => {
+    const { deps, err } = makeDeps(
+      {},
+      codexScript({
+        pluginId: "jentrix@jentrix",
+        installed: true,
+        version: "0.2.8",
+        source: { source: "local", path: "/elsewhere/plugin-codex/plugins/jentrix" },
+      }),
+    );
+    assert.notEqual(await runPluginInstall(deps, "codex"), 0);
+    assert.ok(
+      err.some((l) => /installed from \/elsewhere\/plugin-codex\/plugins\/jentrix, expected a directory under/.test(l)),
+      err.join("\n"),
+    );
+  });
+
+  it("codex: a row without a version keeps the older listing shape working", async () => {
+    const { deps } = makeDeps(
+      {},
+      codexScript({ pluginId: "jentrix@jentrix", installed: true }),
+    );
+    assert.equal(await runPluginInstall(deps, "codex"), 0);
+  });
+
+  it("claude: an update that lands on another version is not this CLI's copy", async () => {
+    const { deps, err } = makeDeps(
+      {},
+      {
+        "plugin update jentrix@jentrix": {
+          code: 0,
+          stdout: "Plugin jentrix@jentrix updated from 0.5.4 to 0.5.3",
+          stderr: "",
+        },
+      },
+    );
+    assert.notEqual(await runPluginInstall(deps), 0);
+    assert.ok(
+      err.some((l) => /reports 0\.5\.4 → 0\.5\.3, expected 0\.5\.5/.test(l)),
+      err.join("\n"),
+    );
+  });
+
+  it("claude: an update that lands on the staged version is reported as the transition", async () => {
+    const { deps, out } = makeDeps(
+      {},
+      {
+        "plugin update jentrix@jentrix": {
+          code: 0,
+          stdout: "Plugin jentrix@jentrix updated from 0.5.4 to 0.5.5",
+          stderr: "",
+        },
+      },
+    );
+    assert.equal(await runPluginInstall(deps), 0);
+    assert.ok(out.some((l) => /Plugin updated 0\.5\.4 → 0\.5\.5/.test(l)));
+  });
+});

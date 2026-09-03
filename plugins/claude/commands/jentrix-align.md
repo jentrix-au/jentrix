@@ -2,7 +2,7 @@
 description: Align this session to a Jentrix work item (task + accountable owner) with a server-confirmed snapshot
 allowed-tools: Bash(jentrix session:*), Bash(jentrix folder:*), Bash(jentrix task:*), Bash(jentrix column:*), Bash(jentrix tool:*)
 ---
-<!-- Source of truth: cli/plugins/claude. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/claude in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 Anchor THIS session's next work and telemetry to a task with an accountable
 owner (client-runtime v2 — alignment is a narrow flag-driven command, not a

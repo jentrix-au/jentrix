@@ -41,7 +41,7 @@ irm https://tm.jentrix.ai/install.ps1 | iex                  # Windows PowerShel
 
 ```bash
 npm install -g @jentrix/cli
-jentrix --version                  # 0.7.0 (surface: 64 tools, file dated …)
+jentrix --version                  # 0.7.1 (surface: 64 tools, file dated …)
 jentrix login                      # OAuth in the browser; or export STACKS_TOKEN=tm_…
 jentrix whoami
 jentrix task list --board-id <id> --json | jq .

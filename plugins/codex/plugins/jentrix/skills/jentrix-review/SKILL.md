@@ -2,7 +2,7 @@
 name: jentrix-review
 description: Review a Jentrix session's typed artifacts by category, verify the readiness contract, and post the verdict as a comment on the aligned task.
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/codex in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 # Review a session's record
 

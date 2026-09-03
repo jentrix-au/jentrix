@@ -5,9 +5,9 @@ Four things carry a version, and by rule they never share a number:
 | Domain | Owner | Where the number lives |
 | --- | --- | --- |
 | Hosted API surface (`mvp`) | Jentrix, server-side | `apiRelease` in `GET https://tm.jentrix.ai/api/mcp/contract` (semver; `1.0.0` today) |
-| `@jentrix/cli` | this repository | `package.json` + `CLI_VERSION` in `src/client.ts` (`0.7.0`) |
-| `@jentrix/plugin-claude` | this repository | `plugins/claude/package.json` + `.claude-plugin/plugin.json` (`0.5.5`) |
-| `@jentrix/plugin-codex` | this repository | `plugins/codex/package.json` + `plugins/jentrix/.codex-plugin/plugin.json` (`0.2.8`) |
+| `@jentrix/cli` | this repository | `package.json` + `CLI_VERSION` in `src/client.ts` (`0.7.1`) |
+| `@jentrix/plugin-claude` | this repository | `plugins/claude/package.json` + `.claude-plugin/plugin.json` (`0.5.6`) |
+| `@jentrix/plugin-codex` | this repository | `plugins/codex/package.json` + `plugins/jentrix/.codex-plugin/plugin.json` (`0.2.9`) |
 
 The server owns the API release and the support state of each line; each
 client owns the range and the exact digest it tested against. Neither side

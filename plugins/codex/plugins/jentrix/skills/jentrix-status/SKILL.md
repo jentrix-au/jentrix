@@ -2,7 +2,7 @@
 name: jentrix-status
 description: Show the connected Jentrix session, alignment, capture health, and honest telemetry availability for this Codex task.
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/codex in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 # Show session status
 

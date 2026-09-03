@@ -2,7 +2,7 @@
 name: jentrix-checkpoint
 description: Distill verified session state into a typed Jentrix checkpoint that survives compaction or handoff.
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/codex in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 # Write a checkpoint
 

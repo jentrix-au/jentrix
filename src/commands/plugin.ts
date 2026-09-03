@@ -663,6 +663,7 @@ async function installCodexPlugin(
   deps: PluginCommandDeps,
   codex: string,
   pluginDir: string,
+  expectedVersion: string,
 ): Promise<number> {
   let listed = await deps.invoke(codex, [
     "plugin",
@@ -816,11 +817,35 @@ async function installCodexPlugin(
   const rows = Array.isArray(inventory?.installed)
     ? (inventory.installed as Array<Record<string, unknown>>)
     : [];
-  if (
-    !rows.some((row) => row.pluginId === PLUGIN_REF && row.installed === true)
-  ) {
+  const row = rows.find(
+    (candidate) =>
+      candidate.pluginId === PLUGIN_REF && candidate.installed === true,
+  );
+  if (!row) {
     deps.writeErr(
       `PLUGIN_INSTALL_FAILED: \`codex plugin list --json\` did not report ${PLUGIN_REF} as installed${await restorePrevious(deps, codex, "codex", previous)}`,
+    );
+    return EXIT_CODES.INTERNAL;
+  }
+  // "Installed" alone proved nothing about WHICH copy: `codex plugin add`
+  // treats an already-installed plugin as a benign no-op, so a stale
+  // by-version cache answered `installed: true` and this command reported the
+  // new skills and hooks as ready when the old ones were still in place
+  // (JEN-330). The row names the version and the directory it was installed
+  // from; both must be this CLI's.
+  if (typeof row.version === "string" && row.version !== expectedVersion) {
+    deps.writeErr(
+      `PLUGIN_INSTALL_FAILED: activation not proven — \`codex plugin list --json\` reports ${PLUGIN_REF} at version ${row.version}, expected ${expectedVersion} (a stale by-version cache)${await restorePrevious(deps, codex, "codex", previous)}`,
+    );
+    return EXIT_CODES.INTERNAL;
+  }
+  const sourcePath =
+    row.source && typeof row.source === "object"
+      ? (row.source as { path?: unknown }).path
+      : undefined;
+  if (typeof sourcePath === "string" && !isInsidePluginDir(sourcePath, pluginDir)) {
+    deps.writeErr(
+      `PLUGIN_INSTALL_FAILED: activation not proven — \`codex plugin list --json\` reports ${PLUGIN_REF} installed from ${sourcePath}, expected a directory under ${pluginDir}${await restorePrevious(deps, codex, "codex", previous)}`,
     );
     return EXIT_CODES.INTERNAL;
   }
@@ -840,6 +865,19 @@ async function installCodexPlugin(
  * `row` is null when there is none; `path` is the registered directory for a
  * directory source, null for git/github rows.
  */
+/**
+ * Is `child` `pluginDir` itself or a directory under it? Codex installs the
+ * plugin from `<marketplace root>/plugins/jentrix`, so the row's source path
+ * is INSIDE the directory the installer registered, never equal to it.
+ */
+function isInsidePluginDir(child: string, pluginDir: string): boolean {
+  const normalize = (value: string) =>
+    value.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+  const inner = normalize(child);
+  const outer = normalize(pluginDir);
+  return inner === outer || inner.startsWith(`${outer}/`);
+}
+
 async function claudeMarketplaceListing(
   deps: PluginCommandDeps,
   claude: string,
@@ -950,7 +988,7 @@ export async function runPluginInstall(
   pinHookCommands(deps, provider, pluginDir);
 
   if (provider === "codex") {
-    return installCodexPlugin(deps, executable, pluginDir);
+    return installCodexPlugin(deps, executable, pluginDir, staged.version);
   }
 
   const claude = executable;
@@ -1084,6 +1122,14 @@ export async function runPluginInstall(
   const updated = `${update.stdout}\n${update.stderr}`.match(
     /updated from ([\w.-]+) to ([\w.-]+)/i,
   );
+  if (updated && updated[2] !== staged.version) {
+    // The provider says it moved the cache — to a version that is not the
+    // one this CLI staged, so the copy in place is still not this CLI's.
+    deps.writeErr(
+      `PLUGIN_INSTALL_FAILED: activation not proven — \`claude plugin update\` reports ${updated[1]} → ${updated[2]}, expected ${staged.version}${await restorePrevious(deps, claude, "claude", previous)}`,
+    );
+    return EXIT_CODES.INTERNAL;
+  }
   deps.writeOut(
     updated
       ? `Plugin updated ${updated[1]} → ${updated[2]} (this CLI's copy).`

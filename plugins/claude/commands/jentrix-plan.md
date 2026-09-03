@@ -2,7 +2,7 @@
 description: Turn the opening prompt into a goal and a small set of Jentrix tasks, confirmed by the operator before anything is created
 allowed-tools: Bash(jentrix task:*), Bash(jentrix column:*), Bash(jentrix board:*), Bash(jentrix session:*), Bash(jentrix push:*)
 ---
-<!-- Source of truth: cli/plugins. Shipped verbatim in the npm package. -->
+<!-- Source of truth: plugins/claude in jentrix-au/jentrix. Shipped verbatim in the npm package. -->
 
 Decompose the work the operator just asked for into a goal and a short task
 list, **confirm both before creating anything**, then create them.
