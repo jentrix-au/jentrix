@@ -30,7 +30,12 @@ const PLANTED_HOOK_BODY =
 const PLANTED_FILE_CONTENTS = "-----BEGIN FILE-----\nsecret config body\n";
 
 const checks: DoctorCheck[] = [
-  { name: "session host", status: "ok", detail: "/Users/op/.nvm/node/lib/node_modules/@jentrix/cli/dist/session-host-main.js" },
+  {
+    name: "session host",
+    status: "ok",
+    detail:
+      "/Users/op/.nvm/node/lib/node_modules/@jentrix/cli/dist/session-host-main.js",
+  },
   {
     name: "credential",
     status: "fail",
@@ -49,21 +54,29 @@ const checks: DoctorCheck[] = [
   {
     name: "hooks claude",
     status: "ok",
-    detail: "6 commands pinned to /Users/op/.nvm/node/lib/node_modules/@jentrix/cli/dist/session-host-main.js; the provider's cached copy matches",
+    detail:
+      "6 commands pinned to /Users/op/.nvm/node/lib/node_modules/@jentrix/cli/dist/session-host-main.js; the provider's cached copy matches",
     data: { commands: [PLANTED_HOOK_BODY] },
   },
   {
     name: "marketplace codex",
     status: "warn",
-    detail: "PLUGIN_MARKETPLACE_CONFLICT: Codex marketplace \"jentrix\" points at /Users/op/forks/mine, which this install did not write",
+    detail:
+      'PLUGIN_MARKETPLACE_CONFLICT: Codex marketplace "jentrix" points at /Users/op/forks/mine, which this install did not write',
   },
   {
     name: "contract",
     status: "warn",
-    detail: "compatible drift: https://tm.example/api/mcp serves 1.1.0 (digest bbbb…), this build adopted 1.0.0 (digest aaaa…)",
+    detail:
+      "compatible drift: https://tm.example/api/mcp serves 1.1.0 (digest bbbb…), this build adopted 1.0.0 (digest aaaa…)",
     data: {
       adopted: { surface: "mvp", apiRelease: "1.0.0", digest: "aaaa" },
-      served: { surface: "mvp", apiRelease: "1.1.0", digest: "bbbb", publicationState: "supported" },
+      served: {
+        surface: "mvp",
+        apiRelease: "1.1.0",
+        digest: "bbbb",
+        publicationState: "supported",
+      },
     },
   },
   { name: "repository", status: "skip", detail: "not a work tree" },
@@ -84,18 +97,31 @@ describe("doctorBundle — redacted by construction", () => {
   it("carries no planted secret, transcript line, hook body or file contents", () => {
     assert.ok(!text.includes(PLANTED_TOKEN), "bearer literal leaked");
     assert.ok(!text.includes(PLANTED_ENV_LITERAL), "env literal leaked");
-    assert.ok(!text.includes(PLANTED_TRANSCRIPT_LINE), "transcript line leaked");
-    assert.ok(!text.includes("private transcript line"), "transcript prose leaked");
+    assert.ok(
+      !text.includes(PLANTED_TRANSCRIPT_LINE),
+      "transcript line leaked",
+    );
+    assert.ok(
+      !text.includes("private transcript line"),
+      "transcript prose leaked",
+    );
     assert.ok(!text.includes(PLANTED_HOOK_BODY), "hook body leaked");
     assert.ok(!text.includes("secret config body"), "file contents leaked");
     assert.ok(!text.includes("/Users/op/"), "home directory leaked");
-    assert.ok(text.includes("‹redacted›"), "the token was dropped rather than marked redacted");
+    assert.ok(
+      text.includes("‹redacted›"),
+      "the token was dropped rather than marked redacted",
+    );
   });
 
   it("keeps what support needs: names, statuses, redacted details, fixes, the contract's two sides, error categories", () => {
     assert.equal(bundle.kind, "jentrix-doctor-bundle");
     assert.equal(bundle.cli.version, CLI_VERSION);
-    assert.deepEqual(bundle.platform, { os: "darwin", arch: "arm64", node: "v22.0.0" });
+    assert.deepEqual(bundle.platform, {
+      os: "darwin",
+      arch: "arm64",
+      node: "v22.0.0",
+    });
     assert.deepEqual(bundle.summary, { ok: 2, warn: 3, fail: 1, skip: 1 });
     assert.deepEqual(
       bundle.checks.map((c) => [c.name, c.status]),
@@ -106,7 +132,8 @@ describe("doctorBundle — redacted by construction", () => {
     const contract = bundle.checks.find((c) => c.name === "contract")!;
     assert.deepEqual(contract.data, checks[5]!.data);
     for (const c of bundle.checks) {
-      if (c.name !== "contract") assert.equal(c.data, undefined, `${c.name} carried data`);
+      if (c.name !== "contract")
+        assert.equal(c.data, undefined, `${c.name} carried data`);
     }
     // Codes, never prose: the leading UPPER_SNAKE code where one exists, a
     // derived NAME_STATUS category otherwise.
@@ -120,7 +147,9 @@ describe("doctorBundle — redacted by construction", () => {
 });
 
 describe("session doctor --bundle", () => {
-  function deps(overrides: Partial<SessionCommandDeps>): SessionCommandDeps & { out: string[] } {
+  function deps(
+    overrides: Partial<SessionCommandDeps>,
+  ): SessionCommandDeps & { out: string[] } {
     const out: string[] = [];
     const caller: SessionToolCaller = {
       call: async (name: string) => {
@@ -144,14 +173,20 @@ describe("session doctor --bundle", () => {
       env: { STACKS_TOKEN: PLANTED_TOKEN },
       cwd: () => "/work/api",
       configPath: "/tmp/config.json",
-      resolveTarget: () => ({ token: PLANTED_TOKEN, url: "https://stacks.example/api/mcp" }),
+      resolveTarget: () => ({
+        token: PLANTED_TOKEN,
+        url: "https://stacks.example/api/mcp",
+      }),
       ensureInstallationId: () => "install-1",
       connect: async () => ({ caller, close: async () => undefined }),
       git: async (args) => {
         const key = args.join(" ");
         const table: Record<string, { code: number; stdout: string }> = {
           "rev-parse --show-toplevel": { code: 0, stdout: "/work/api\n" },
-          "remote get-url origin": { code: 0, stdout: "git@github.com:acme/api.git\n" },
+          "remote get-url origin": {
+            code: 0,
+            stdout: "git@github.com:acme/api.git\n",
+          },
           "symbolic-ref --short -q HEAD": { code: 0, stdout: "main\n" },
           "rev-parse HEAD": { code: 0, stdout: "abc123\n" },
           "status --porcelain": { code: 0, stdout: "" },
@@ -165,7 +200,10 @@ describe("session doctor --bundle", () => {
       resolveSessionHost: () => "/tools/session-host-main.js",
       runSessionHost: async () => 0,
       spawnSessionHostDetached: () => 1,
-      spoolRoot: join(mkdtempSync(join(tmpdir(), "jx-doctor-bundle-")), "spool"),
+      spoolRoot: join(
+        mkdtempSync(join(tmpdir(), "jx-doctor-bundle-")),
+        "spool",
+      ),
       ...overrides,
     };
   }
@@ -182,7 +220,10 @@ describe("session doctor --bundle", () => {
     assert.equal(parsed.kind, "jentrix-doctor-bundle");
     assert.ok(parsed.checks.length > 0);
     assert.ok(!text.includes(PLANTED_TOKEN), "bearer leaked into the bundle");
-    assert.match(d.out.join("\n"), /Support bundle written: .*bundle\.json — redacted/);
+    assert.match(
+      d.out.join("\n"),
+      /Support bundle written: .*bundle\.json — redacted/,
+    );
 
     const dj = deps({});
     const json = join(dir, "bundle2.json");
@@ -195,7 +236,14 @@ describe("session doctor --bundle", () => {
     const dir = mkdtempSync(join(tmpdir(), "jx-doctor-bundle-cwd-"));
     const d = deps({ cwd: () => dir });
     await runSessionDoctor({ bundle: true }, d);
-    const written = d.out.find((l) => l.startsWith("Support bundle written: "))!;
-    assert.match(written, new RegExp(`${dir.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}/jentrix-doctor-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}\\.json`));
+    const written = d.out.find((l) =>
+      l.startsWith("Support bundle written: "),
+    )!;
+    assert.match(
+      written,
+      new RegExp(
+        `${dir.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}/jentrix-doctor-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}\\.json`,
+      ),
+    );
   });
 });

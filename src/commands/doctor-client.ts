@@ -182,7 +182,10 @@ export function doctorBundle(
     summary[check.status] += 1;
     if (check.status === "fail" || check.status === "warn") {
       const code = /^([A-Z][A-Z0-9_]{3,})\b/.exec(check.detail)?.[1];
-      errorCategories.add(code ?? `${check.name.replace(/\s+/g, "_").toUpperCase()}_${check.status.toUpperCase()}`);
+      errorCategories.add(
+        code ??
+          `${check.name.replace(/\s+/g, "_").toUpperCase()}_${check.status.toUpperCase()}`,
+      );
     }
     const entry: DoctorBundle["checks"][number] = {
       name: check.name,
