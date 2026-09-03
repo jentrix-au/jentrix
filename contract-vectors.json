@@ -1,0 +1,111 @@
+{
+  "connectionKey": [
+    {
+      "expected": "local:5d1955ff65c259efe0896c0f8093cd0a",
+      "installationId": "11111111-2222-3333-4444-555555555555",
+      "operatorUserId": "user_op_1"
+    },
+    {
+      "expected": "local:c51ad3107467f79bebfd08597cb825b4",
+      "installationId": "install-uuid-abcdef",
+      "operatorUserId": "user_op_2"
+    },
+    {
+      "expected": "local:d2152199818c65aeaeaa1f0b9a24b6ec",
+      "installationId": "install-uuid-abcdef",
+      "operatorUserId": "user_op_1"
+    }
+  ],
+  "redaction": [
+    {
+      "expected": "bearer ‹redacted› ok",
+      "input": "bearer tm_0123456789abcdefTOKEN ok",
+      "name": "Jentrix PAT (tm_)"
+    },
+    {
+      "expected": "Authorization: ‹redacted›",
+      "input": "Authorization: tmo_0123456789abcdefTOKEN",
+      "name": "Jentrix OAuth access (tmo_)"
+    },
+    {
+      "expected": "refresh=‹redacted›;",
+      "input": "refresh=tmr_0123456789abcdefTOKEN;",
+      "name": "Jentrix refresh (tmr_)"
+    },
+    {
+      "expected": "grant ‹redacted› issued",
+      "input": "grant tmb_0123456789abcdefTOKEN issued",
+      "name": "Jentrix runner bootstrap (tmb_) — the drift this corpus caught"
+    },
+    {
+      "expected": "remote https://‹redacted›@github.com/x/y.git",
+      "input": "remote https://ghp_ABCDEFGHIJKLMNOPQRST12@github.com/x/y.git",
+      "name": "GitHub PAT (ghp_)"
+    },
+    {
+      "expected": "token ‹redacted›",
+      "input": "token github_pat_ABCDEFGHIJKLMNOPQRST_more",
+      "name": "GitHub fine-grained PAT"
+    },
+    {
+      "expected": "‹redacted› configured",
+      "input": "whsec_ABCDEF0123456789 configured",
+      "name": "webhook signing secret (whsec_)"
+    },
+    {
+      "expected": "key ‹redacted› used",
+      "input": "key AKIAABCDEFGHIJKLMNOP used",
+      "name": "AWS access key id"
+    },
+    {
+      "expected": "‹redacted› ok",
+      "input": "xoxb-123456789012-abcdef ok",
+      "name": "Slack bot token"
+    },
+    {
+      "expected": "‹redacted› sent",
+      "input": "AIzaABCDEFGHIJKLMNOPQRSTUVWXYZ0123 sent",
+      "name": "Google API key"
+    },
+    {
+      "expected": "env ‹redacted›",
+      "input": "env sk-ant-api03-ABCDEFGHIJKLMNOPQRST",
+      "name": "Anthropic key (sk-ant-)"
+    },
+    {
+      "expected": "‹redacted› in env",
+      "input": "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX in env",
+      "name": "OpenAI project key (sk-proj-)"
+    },
+    {
+      "expected": "‹redacted› charged",
+      "input": "sk_live_ABCDEF0123456789 charged",
+      "name": "Stripe live secret key"
+    },
+    {
+      "expected": "before\n‹redacted›\nafter",
+      "input": "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIabc\nxyz\n-----END RSA PRIVATE KEY-----\nafter",
+      "name": "PEM private-key block"
+    },
+    {
+      "expected": "jwt ‹redacted› ok",
+      "input": "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c ok",
+      "name": "JWT (three base64url segments)"
+    },
+    {
+      "expected": "‹redacted› rest",
+      "input": "Authorization: Bearer abc.DEF-ghi_jkl~123 rest",
+      "name": "Authorization: Bearer header (whole match)"
+    },
+    {
+      "expected": "jentrix align --workspace acme --task cmt123 --yes",
+      "input": "jentrix align --workspace acme --task cmt123 --yes",
+      "name": "non-secret text passes untouched"
+    },
+    {
+      "expected": "tm_short ok",
+      "input": "tm_short ok",
+      "name": "short tm_ lookalike is NOT redacted (16-char floor)"
+    }
+  ]
+}

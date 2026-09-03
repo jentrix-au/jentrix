@@ -1,0 +1,94 @@
+{
+  "description": "Trusted Codex lifecycle bridge. Structured hook stdin is appended locally; credentials and transcript content never enter argv. Hooks remain inactive until the operator reviews and trusts them. PreCompact/PostCompact additionally preserve the approved capture boundary as a LOG artifact (the record category); capture off records only the boundary, never transcript content. SessionEnd lets the session host close a task that ended without $jentrix-end (closed INTERRUPTED; `jentrix session end <id>` completes it).",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event SessionStart",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event UserPromptSubmit",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event PostToolUse",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event Stop",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event PreCompact",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "jentrix session snapshot --event PreCompact",
+            "timeout": 10,
+            "statusMessage": "Preserving the Jentrix capture boundary"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event PostCompact",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "jentrix session snapshot --event PostCompact",
+            "timeout": 10,
+            "statusMessage": "Recording the Jentrix compaction boundary"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider codex --event SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

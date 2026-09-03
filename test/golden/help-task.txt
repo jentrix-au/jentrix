@@ -1,0 +1,23 @@
+Usage: jentrix task [options] [command]
+
+archive, create, get, list, move, search, … (9 commands)
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  archive [options]        Archive a task (soft delete — it disappears from the board but is
+                           recoverable).
+  create [options]         Create a new task in a column.
+  get [options]            Fetch full details of a task including description, labels, assignees,
+                           subtasks…
+  list [options]           List tasks in a board or column with board/column names, total count, and
+                           pagin…
+  move [options]           Move a task to a different column (= change status on the kanban board)
+                           and/or …
+  search [options]         Search tasks workspace-wide across all boards: exact task key (for
+                           example STK-…
+  set-assignees [options]  Set the full list of assignees on a task.
+  set-labels [options]     Set the full list of labels on a task.
+  update [options]         Update fields on an existing task.
+  help [command]           display help for command

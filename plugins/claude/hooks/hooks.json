@@ -1,0 +1,57 @@
+{
+  "description": "M20.1 \u00a715.1 \u2014 lifecycle bridge: hooks append their structured stdin payload (session_id, transcript_path, cwd) to the local session context file via `jentrix-session-host hook`. argv carries only the provider and event name (the host resolves the directory cross-platform \u2014 STA-131: a literal $HOME never expands in Windows hook commands) \u2014 never credentials or transcript content. PreCompact/PostCompact additionally run `jentrix session snapshot`, which FOLLOWS THE CAPTURE CONSENT: capture ON preserves the transcript range about to leave the model's context; capture OFF (the MVP default) records the compaction boundary and NO content, because `capture: \"off\"` was disclosed as typed artifacts only, no transcript. Both land as LOG artifacts (the record category) — never as outputs. SessionEnd is also what lets the session host close a session whose Claude Code process exited without /jentrix-end (closed INTERRUPTED; `jentrix session end <id>` completes it). Preservation is never distillation \u2014 a hook has no model turn; /jentrix-checkpoint does that. Compaction-path hooks carry an explicit 10s timeout (STA-51): they run inside the operator's /compact, and a slow artifact push must delay it by seconds, not the 60s default.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider claude --event SessionStart"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider claude --event SessionEnd"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider claude --event PreCompact",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "jentrix session snapshot --event PreCompact",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jentrix-session-host hook --provider claude --event PostCompact",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "jentrix session snapshot --event PostCompact",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

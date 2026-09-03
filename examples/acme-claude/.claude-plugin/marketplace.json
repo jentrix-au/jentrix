@@ -1,0 +1,16 @@
+{
+  "name": "acme",
+  "description": "Acme's Claude Code plugins for Jentrix (reference extension from the Jentrix open client).",
+  "owner": {
+    "name": "Acme"
+  },
+  "plugins": [
+    {
+      "name": "acme-jentrix",
+      "source": "./",
+      "description": "Acme's standup workflow over the Jentrix CLI — installed beside the official jentrix plugin, never in its place.",
+      "category": "productivity",
+      "keywords": ["jentrix", "acme", "standup"]
+    }
+  ]
+}

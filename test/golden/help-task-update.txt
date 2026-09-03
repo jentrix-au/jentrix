@@ -1,0 +1,23 @@
+Usage: jentrix task update [options]
+
+Update fields on an existing task. Only provided fields are changed.
+
+Options:
+  --description <value>        New markdown description.
+  --due-at <value>             New due date, or null to clear. (--clear-due-at sends null)
+  --clear-due-at               Send null for dueAt (mutually exclusive with --due-at)
+  --if-unmodified-since <iso>  Optimistic concurrency guard: the entity's updatedAt from your last
+                               read. If it changed since, the call fails with CONFLICT and the error
+                               embeds the current entity.
+  --priority <choice>          New priority. (choices: LOW, MEDIUM, HIGH, URGENT)
+  --task <id>                  ID of the task to update. (required)
+  --title <value>              New title.
+  --args <json>                extra tool arguments as a JSON object, merged under the flags
+                               (explicit flags win over --args keys; --args keys win over config
+                               defaults)
+  --json                       print stable JSON on stdout (machine mode)
+  --url <url>                  MCP endpoint (default: STACKS_MCP_URL, config file, or production)
+  --token <token>              API token (default: STACKS_TOKEN or config file)
+  --no-wait                    fail RATE_LIMITED calls immediately (never sleep)
+  --max-wait <seconds>         cap total RATE_LIMITED wait time (default: "60")
+  -h, --help                   display help for command

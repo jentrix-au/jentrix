@@ -1,0 +1,57 @@
+{
+  "tool": "bulk_update_tasks",
+  "warnings": [],
+  "descriptors": [
+    {
+      "property": "idempotencyKey",
+      "role": "value",
+      "name": "idempotency-key",
+      "flag": "--idempotency-key <value>",
+      "optionKey": "idempotencyKey",
+      "required": false,
+      "propertyRequired": false,
+      "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+      "helpText": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+      "choices": null,
+      "repeatable": false,
+      "takesValue": true,
+      "negatable": false,
+      "jsonTop": null,
+      "hasCoerce": false
+    },
+    {
+      "property": "updates",
+      "role": "json",
+      "name": "updates-json",
+      "flag": "--updates-json <json>",
+      "optionKey": "updatesJson",
+      "required": false,
+      "propertyRequired": true,
+      "description": "Per-task updates (max 50). Each entry needs taskId; only provided fields change.",
+      "helpText": "Per-task updates (max 50). Each entry needs taskId; only provided fields change. (JSON array; or --updates-file to read from a file)",
+      "choices": null,
+      "repeatable": false,
+      "takesValue": true,
+      "negatable": false,
+      "jsonTop": "array",
+      "hasCoerce": true
+    },
+    {
+      "property": "updates",
+      "role": "json-file",
+      "name": "updates-file",
+      "flag": "--updates-file <file>",
+      "optionKey": "updatesFile",
+      "required": false,
+      "propertyRequired": true,
+      "description": "",
+      "helpText": "Read updates as JSON from a file (\"-\" = stdin; alternative to --updates-json)",
+      "choices": null,
+      "repeatable": false,
+      "takesValue": true,
+      "negatable": false,
+      "jsonTop": "array",
+      "hasCoerce": false
+    }
+  ]
+}

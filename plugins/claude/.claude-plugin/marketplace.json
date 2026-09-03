@@ -1,0 +1,16 @@
+{
+  "name": "jentrix",
+  "description": "Jentrix connected-session plugin for Claude Code.",
+  "owner": {
+    "name": "Jentrix"
+  },
+  "plugins": [
+    {
+      "name": "jentrix",
+      "source": "./",
+      "description": "Bind a Claude Code session to a Jentrix project: /jentrix-connect, /jentrix-align, /jentrix-status, /jentrix-end over the Jentrix CLI, with trusted lifecycle hooks supplying the session id.",
+      "category": "productivity",
+      "keywords": ["jentrix", "sessions", "mcp", "agents", "jentrix"]
+    }
+  ]
+}

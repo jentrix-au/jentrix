@@ -1,0 +1,34 @@
+{
+  "name": "jentrix",
+  "version": "0.2.8",
+  "description": "Connect Codex tasks to Jentrix with trusted lifecycle hooks, exact-rollout telemetry recovery, typed artifacts, and operator-confirmed alignment.",
+  "author": {
+    "name": "Jentrix",
+    "url": "https://github.com/jentrix-au"
+  },
+  "homepage": "https://tm.jentrix.ai/docs",
+  "repository": "https://github.com/jentrix-au/jentrix",
+  "license": "MIT",
+  "keywords": [
+    "jentrix",
+    "sessions",
+    "task-management",
+    "agents"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Jentrix",
+    "shortDescription": "Connect this Codex task to Jentrix.",
+    "longDescription": "Align a Codex task to a Jentrix project and task, preserve typed artifacts and checkpoints, capture supported lifecycle evidence through trusted hooks, and recover provider-reported usage from the exact task rollout when hooks are unavailable.",
+    "developerName": "Jentrix",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Connect this Codex task to my Jentrix project.",
+      "Align this work and create a confirmed task plan."
+    ]
+  }
+}

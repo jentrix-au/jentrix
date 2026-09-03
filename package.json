@@ -1,0 +1,80 @@
+{
+  "name": "@jentrix/cli",
+  "version": "0.7.0",
+  "description": "Command-line client for the Jentrix MCP surface (jentrix tool <name>, generated noun-verb commands).",
+  "keywords": [
+    "jentrix",
+    "mcp",
+    "cli",
+    "task-manager",
+    "agents",
+    "stacks"
+  ],
+  "homepage": "https://github.com/jentrix-au/jentrix",
+  "bugs": {
+    "url": "https://github.com/jentrix-au/jentrix/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jentrix-au/jentrix.git"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@11.5.1",
+  "author": "Jentrix",
+  "type": "module",
+  "bin": {
+    "jentrix": "dist/main.js",
+    "stacks": "dist/main.js",
+    "jentrix-session-host": "dist/session-host-main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./package.json": "./package.json",
+    "./surface.json": "./surface.json",
+    "./contract.json": "./contract.json",
+    "./contract-vectors.json": "./contract-vectors.json"
+  },
+  "files": [
+    "dist/",
+    "surface.json",
+    "contract.json",
+    "contract-vectors.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "gen:help-goldens": "node --import tsx scripts/gen-help-goldens.ts",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "validate:examples": "node scripts/validate-examples.mjs"
+  },
+  "dependencies": {
+    "@jentrix/plugin-claude": "workspace:*",
+    "@jentrix/plugin-codex": "workspace:*",
+    "@modelcontextprotocol/sdk": "~1.29.0",
+    "commander": "^14.0.0",
+    "undici": "^7.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.22.3",
+    "typescript": "^5"
+  }
+}

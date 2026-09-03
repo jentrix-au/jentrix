@@ -1,0 +1,29 @@
+Usage: jentrix [options] [command]
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  activity        list
+  agent           align-session, attach-session, create-session, get-session, list-sessions
+  artifact        attach, get, list, search
+  attachment      create, list
+  board           archive, create, list, rename, snapshot, unarchive
+  bug             update-report
+  bulk            create-tasks, move-tasks, update-tasks
+  column          list, manage
+  comment         create, delete, list, update
+  complete        agent-session
+  invitation      list
+  invite          member
+  label           list, manage
+  link            add, list, remove
+  member          list, remove, set-role
+  project         add-link, create, get, list, remove-link, resolve-for-repo, … (7 commands)
+  resume          agent-session
+  revoke          invitation
+  subtask         create, delete, toggle
+  task            archive, create, get, list, move, search, … (9 commands)
+  token           get-context
+  workspace       create, list, update
+  help [command]  display help for command

@@ -1,0 +1,379 @@
+name: release
+
+# Publishes the three client packages — `@jentrix/plugin-claude`,
+# `@jentrix/plugin-codex` and `@jentrix/cli` — when a `cli-v*` tag is pushed,
+# PACK-ONCE and CANDIDATE-FIRST (open-client PRD §5.2, D3): `pnpm -r pack` runs
+# exactly once, the three tarballs are clean-installed and exercised TOGETHER,
+# and the very same files are then `npm publish`ed under the `next` dist-tag —
+# plugins first, the CLI last, because the CLI's package.json pins the plugin
+# versions and must never be installable before they are. Nothing repacks
+# between validation and upload. Promotion to `latest` is a SEPARATE,
+# deliberate manual run (`promote=<version>` below), plugins first, CLI last;
+# partial failure leaves the previous `latest` set installable, and rollback is
+# reinstalling the previous published version — nothing is ever unpublished.
+# Publishing is deliberately tag-triggered, never on merge — see
+# docs/releasing.md.
+#
+# Auth is npm TRUSTED PUBLISHING (OIDC): no npm credential exists anywhere in
+# this repository or its secrets. The registry authorizes each publish by
+# validating a short-lived OIDC token minted by GitHub for this exact
+# repository + workflow file + ENVIRONMENT, which is why `id-token: write` and
+# `environment: release` below are both load-bearing, and why renaming this
+# file or the environment breaks publishing until the trusted publisher is
+# re-pointed on npmjs.com. EACH of the three packages needs its own
+# trusted-publisher entry there (organization or user `jentrix-au`, repository
+# `jentrix`, workflow `release.yml`, environment `release`, allowed action: npm
+# publish). The `release` environment carries a required reviewer, so EVERY
+# run of the publish and promote jobs — a tag, a manual dry run, a promotion —
+# waits in the Actions UI for that approval before a single step executes.
+#
+# A MANUAL run without `promote` (workflow_dispatch) is a DRY RUN and can never
+# publish. It exists because npm performs the OIDC exchange before any of its
+# dry-run branches, so `npm publish --dry-run` proves whether trusted publishing
+# is actually configured — without consuming a version number. Run it after
+# any change to the npm-side publisher config, this file's name, the
+# environment, or the npm major.
+#
+# Green means trusted publishing is configured for every package. The dry run
+# reaches npm's "cannot publish over the previously published versions" check
+# — which runs AFTER auth, so arriving there is the pass — and the publish
+# steps translate exactly that one case into success. The line behind the
+# verdict is:
+#     npm http fetch POST 201 …/oidc/token/exchange/package/<pkg>
+#     npm verbose oidc Successfully retrieved and set token
+# A 404 on that POST means no trusted publisher is registered for that package
+# against THIS repository + workflow + environment, and the run goes red like
+# anything else that is actually broken (.github/scripts/publish-candidate.sh
+# requires the exchange line on a dry run — npm alone would exit 0 for a
+# package it could not authenticate, having proven nothing).
+#
+# The optional Homebrew bump still needs `HOMEBREW_TAP_TOKEN`; it is unset and
+# the tap does not exist, so that job is a clean skip on every release.
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+  workflow_dispatch:
+    inputs:
+      promote:
+        description: >-
+          Promote an already-published `next` candidate to `latest`: the exact
+          CLI version (e.g. 0.7.0). Plugins are promoted first at the versions
+          that CLI pins, the CLI last. Leave EMPTY for a dry run of the
+          publish path (publishes nothing).
+        required: false
+        default: ""
+
+jobs:
+  publish:
+    name: Pack once, validate, publish candidates to `next`
+    # A tag run always publishes; a manual run publishes nothing (dry run)
+    # unless it is a promotion, which is the other job.
+    if: github.event_name == 'push' || github.event.inputs.promote == ''
+    runs-on: ubuntu-latest
+    # The protected environment: its required reviewer gates every run of this
+    # job, and its name is part of what npm's trusted publisher validates.
+    environment: release
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # mint the OIDC token npm exchanges for publish rights
+    env:
+      IS_TAG: ${{ github.ref_type == 'tag' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Derive and verify CLI version
+        id: ver
+        if: github.ref_type == 'tag'
+        # The tag pins the CLI: package.json and CLI_VERSION must equal it, and
+        # each plugin package must agree with its provider manifest.
+        run: |
+          ver="${GITHUB_REF_NAME#cli-v}"
+          node scripts/check-version.mjs "$ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and test
+        run: |
+          pnpm typecheck
+          pnpm test
+
+      # PACK ONCE. `prepack` builds dist/ inside the CLI package; pnpm rewrites
+      # every `workspace:*` range to the exact version. These three files are
+      # what gets validated AND what gets published — nothing repacks after
+      # this step, and any `workspace:` range that survived is a red build.
+      - name: Pack the three packages once
+        id: pack
+        run: |
+          out="$RUNNER_TEMP/pack"
+          mkdir -p "$out"
+          pnpm -r pack --pack-destination "$out"
+          ls -la "$out"
+          pick() { ls "$out"/"$1"-*.tgz | head -n1; }
+          claude="$(pick jentrix-plugin-claude)"; codex="$(pick jentrix-plugin-codex)"; cli="$(pick jentrix-cli)"
+          for t in "$claude" "$codex" "$cli"; do
+            test -s "$t" || { echo "::error::missing tarball: $t"; exit 1; }
+            if tar -xzOf "$t" package/package.json | grep -q "workspace:"; then
+              echo "::error::$t still carries a workspace: range — pnpm did not rewrite it"
+              exit 1
+            fi
+            echo "$t: $(tar -xzOf "$t" package/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s);console.log(p.name+"@"+p.version)})')"
+          done
+          echo "claude=$claude" >> "$GITHUB_OUTPUT"
+          echo "codex=$codex" >> "$GITHUB_OUTPUT"
+          echo "cli=$cli" >> "$GITHUB_OUTPUT"
+
+      # CLEAN-INSTALL AND TEST THE EXACT TARBALLS, together, in an empty
+      # project: the installed bin runs, the generated tree renders, the plugin
+      # packages resolve from the CLI's dependency tree (`--dry-run` stages
+      # them without a provider binary), and the CLI package carries no
+      # plugins/ of its own. This is the same proof test/pack-smoke.test.ts
+      # makes, on the files that will be uploaded rather than a fresh pack.
+      - name: Clean-install and exercise the exact tarballs
+        env:
+          CLAUDE_TGZ: ${{ steps.pack.outputs.claude }}
+          CODEX_TGZ: ${{ steps.pack.outputs.codex }}
+          CLI_TGZ: ${{ steps.pack.outputs.cli }}
+        run: |
+          proj="$RUNNER_TEMP/consumer"
+          mkdir -p "$proj" && cd "$proj"
+          echo '{"name":"consumer","private":true}' > package.json
+          npm install --no-audit --no-fund "$CLAUDE_TGZ" "$CODEX_TGZ" "$CLI_TGZ"
+          bin="$proj/node_modules/.bin/jentrix"
+          "$bin" --version | tee /dev/stderr | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+ \(surface: [0-9]+ tools' || { echo "::error::--version lacks the surface count"; exit 1; }
+          "$bin" --help | grep -q ' task ' || { echo "::error::generated command tree missing from --help"; exit 1; }
+          test ! -d node_modules/@jentrix/cli/plugins || { echo "::error::the CLI tarball still carries plugins/"; exit 1; }
+          for p in claude codex; do
+            PATH="$(dirname "$(command -v node)")" "$bin" plugin install "$p" --dry-run | tee /dev/stderr | grep -q "node_modules/@jentrix/plugin-$p" || { echo "::error::$p plugin did not resolve from the installed tree"; exit 1; }
+          done
+
+      # Trusted publishing needs npm >= 11.5.1; Node 22 bundles 10.9.x. Only the
+      # publish client moves — the gates above deliberately keep running on the
+      # Node this project has always tested against. The `^` ceiling is
+      # deliberate too: npm 12 changes install-time script defaults, which is not
+      # something to discover for the first time inside a release job.
+      - name: Use an npm that speaks OIDC
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+
+      # No NODE_AUTH_TOKEN: npm exchanges the job's OIDC token for publish
+      # rights (POST /-/npm/v1/oidc/token/exchange/package/<name>).
+      #
+      # `--loglevel verbose` is LOAD-BEARING, not debug noise. npm's OIDC helper
+      # is written to never throw — every failure path (no id_token, exchange
+      # rejected, no token in the response) is a `log.verbose('oidc', …)` and a
+      # silent `return undefined`. Publishing then continues with whatever
+      # `_authToken` is configured, which under actions/setup-node is the
+      # literal placeholder `XXXXX-XXXXX-XXXXX-XXXXX`, and the registry answers
+      # an unauthenticated PUT for an existing package with a bare
+      # `E404 Not Found` — it will not admit the package exists. So a refused
+      # trusted publisher looks identical to a typo'd package name unless the
+      # reason is asked for. Verbose keeps the reason in the log. It prints no
+      # secret: the id_token is only ever sent as a header, and success logs
+      # the words, never the token.
+      #
+      # The salvage branch in publish-candidate.sh exists so a PASSING
+      # verification run reports green: the tree normally holds the version
+      # already on npm, so a dry run reaches npm's version check and dies there
+      # — AFTER the exchange it was run to test. DRY is derived in the SHELL,
+      # never by an Actions ternary (`a && b || c` returns an OPERAND, not a
+      # boolean — a release once published nothing while every step reported
+      # success). `npm publish <tarball>` runs no prepack: the bytes uploaded
+      # are the bytes validated above.
+      - name: Publish @jentrix/plugin-claude to `next`
+        id: plugin_claude
+        continue-on-error: true
+        env:
+          TARBALL: ${{ steps.pack.outputs.claude }}
+        run: .github/scripts/publish-candidate.sh "$TARBALL" plugin
+
+      - name: Publish @jentrix/plugin-codex to `next`
+        id: plugin_codex
+        continue-on-error: true
+        env:
+          TARBALL: ${{ steps.pack.outputs.codex }}
+        run: .github/scripts/publish-candidate.sh "$TARBALL" plugin
+
+      # The CLI goes LAST, and on a tag only after both plugins: its package.json
+      # pins their versions. A dry run continues regardless so the CLI's own
+      # OIDC exchange is observed even while a plugin has no publisher yet.
+      - name: Publish @jentrix/cli to `next`
+        id: cli
+        if: github.ref_type != 'tag' || (steps.plugin_claude.outcome == 'success' && steps.plugin_codex.outcome == 'success')
+        env:
+          TARBALL: ${{ steps.pack.outputs.cli }}
+        run: .github/scripts/publish-candidate.sh "$TARBALL" cli
+
+      # The verdict on the plugin steps, AFTER the CLI step ran: a red plugin
+      # publish is still a red run (continue-on-error only defers it).
+      - name: Verdict on the plugin publishes
+        if: steps.plugin_claude.outcome != 'success' || steps.plugin_codex.outcome != 'success'
+        run: |
+          echo "::error::plugin publish failed — plugin-claude: ${{ steps.plugin_claude.outcome }}, plugin-codex: ${{ steps.plugin_codex.outcome }}. A 'POST 404 … package not found' at the OIDC exchange means the package has no trusted publisher registered against jentrix-au/jentrix + release.yml + environment release (docs/releasing.md)."
+          exit 1
+
+      # Green must be a claim about the REGISTRY, not about an exit code. The
+      # publish steps above exit 0 on a dry run by design, so without this the
+      # only difference between "released" and "released nothing" is a line in
+      # a log nobody reads. Ask npm — for all three, at their own versions.
+      - name: Prove the candidates are on npm
+        if: github.ref_type == 'tag'
+        env:
+          CLI_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          # Registry reads lag a just-finished publish by MINUTES now that npm
+          # answers `PUT 202 … Your package is being processed and may take a
+          # few minutes to become available` and finishes the publish
+          # asynchronously. Poll for up to ten minutes, and when it still is
+          # not there, say what is actually known — the publish step already
+          # printed `+ <pkg>@<version>` or it did not — instead of a verdict
+          # this step cannot reach.
+          check() {
+            pkg="$1"; want="$2"; ok=""
+            for attempt in $(seq 1 30); do
+              if [ "$(npm view "$pkg@$want" version 2>/dev/null)" = "$want" ]; then
+                ok=1; break
+              fi
+              echo "$pkg@$want not visible yet (attempt $attempt/30) — retrying in 20s"
+              sleep 20
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::$pkg@$want is not visible on the registry after 10 minutes. If the publish step above printed '+ $pkg@$want' (npm 202 — still processing), wait and check 'npm view $pkg@$want version' before doing ANYTHING — never republish or re-run; if it did not, nothing was published."
+              exit 1
+            fi
+            echo "$pkg@$want confirmed on npm (dist-tags: $(npm view "$pkg" dist-tags --json 2>/dev/null | tr -d '\n '))"
+          }
+          check @jentrix/plugin-claude "$(node -p 'require("./plugins/claude/package.json").version')"
+          check @jentrix/plugin-codex "$(node -p 'require("./plugins/codex/package.json").version')"
+          check @jentrix/cli "$CLI_VERSION"
+
+      - name: Create GitHub Release
+        # Tag runs only: a dry run publishes nothing, so it has nothing to
+        # announce (and `steps.ver` never ran to give it a version).
+        if: github.ref_type == 'tag'
+        # VERSION is mapped into env (not interpolated into the script body) per
+        # workflow-injection hygiene; it is already a strict semver validated by
+        # the guard step above, and the tag comes from $GITHUB_REF_NAME (a
+        # runner-provided env var), never templated into the shell.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "Jentrix CLI v${VERSION} (candidate)" \
+            --notes "\`@jentrix/cli@${VERSION}\` and the plugin packages it pins are on npm under the \`next\` dist-tag. Try it: \`npm i -g @jentrix/cli@next\`. Promote to \`latest\` with the release workflow's \`promote=${VERSION}\` input (plugins first, CLI last)."
+
+  promote:
+    name: Promote a `next` candidate to `latest`
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.promote != ''
+    runs-on: ubuntu-latest
+    # Same protected environment: the reviewer approves the promotion too, and
+    # NPM_PROMOTE_TOKEN is an environment secret only this job can read.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Use an npm that speaks OIDC
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+
+      # `npm dist-tag add` is not a publish, so trusted publishing's OIDC token
+      # cannot authorize it: the registry accepts only an account credential
+      # here. NPM_PROMOTE_TOKEN is a granular access token scoped to the three
+      # @jentrix client packages with read+write (the one npm credential this
+      # repository may hold, and only this job reads it). Absent → the job
+      # says so.
+      - name: Promote plugins first, then the CLI
+        env:
+          VERSION: ${{ github.event.inputs.promote }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PROMOTE_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::NPM_PROMOTE_TOKEN is not set on the release environment — promotion needs an account credential (a granular access token with read+write on the @jentrix client packages), or run the dist-tag commands by hand (docs/releasing.md)."
+            exit 1
+          fi
+          echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::promote must be an exact semver, got '$VERSION'"; exit 1; }
+          # The CLI candidate names the plugin versions it was validated with.
+          claude="$(npm view "@jentrix/cli@$VERSION" 'dependencies.@jentrix/plugin-claude')"
+          codex="$(npm view "@jentrix/cli@$VERSION" 'dependencies.@jentrix/plugin-codex')"
+          test -n "$claude" && test -n "$codex" || { echo "::error::@jentrix/cli@$VERSION is not on npm, or pins no plugin versions"; exit 1; }
+          for spec in "@jentrix/plugin-claude@$claude" "@jentrix/plugin-codex@$codex" "@jentrix/cli@$VERSION"; do
+            [ "$(npm view "$spec" version)" = "${spec##*@}" ] || { echo "::error::$spec is not on npm — nothing promoted"; exit 1; }
+          done
+          for spec in "@jentrix/plugin-claude@$claude" "@jentrix/plugin-codex@$codex" "@jentrix/cli@$VERSION"; do
+            npm dist-tag add "$spec" latest
+          done
+          for pkg in @jentrix/plugin-claude @jentrix/plugin-codex @jentrix/cli; do
+            echo "$pkg dist-tags: $(npm view "$pkg" dist-tags --json | tr -d '\n ')"
+          done
+
+  bump-homebrew:
+    name: Bump Homebrew tap
+    needs: publish
+    # Tag runs only: a dry run publishes no tarball for a formula to point at.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on HOMEBREW_TAP_TOKEN
+        id: gate
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "No HOMEBREW_TAP_TOKEN secret — skipping automatic formula bump (do it manually per docs/releasing.md)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-node@v6
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22
+
+      - name: Render formula from the published tarball and push to the tap
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          ver="${GITHUB_REF_NAME#cli-v}"
+          # npm's CDN can lag a few seconds behind publish; retry the fetch.
+          for i in 1 2 3 4 5; do
+            if node scripts/render-homebrew-formula.mjs "$ver" > /tmp/jentrix.rb; then break; fi
+            echo "tarball not visible yet (attempt $i) — waiting…"; sleep 10
+          done
+          test -s /tmp/jentrix.rb || { echo "::error::could not render formula"; exit 1; }
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/jentrix-au/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp /tmp/jentrix.rb tap/Formula/jentrix.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/jentrix.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date."
+          else
+            git commit -m "jentrix ${ver}"
+            git push
+          fi

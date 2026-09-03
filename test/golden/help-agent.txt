@@ -1,0 +1,18 @@
+Usage: jentrix agent [options] [command]
+
+align-session, attach-session, create-session, get-session, list-sessions
+
+Options:
+  -h, --help                display help for command
+
+Commands:
+  align-session [options]   Jentrix MVP: anchor an OPEN session to a work item + accountable owner
+                            after th…
+  attach-session [options]  Bind a TRUSTED current provider session/thread id (from provider
+                            lifecycle hook…
+  create-session [options]  Create a STARTING connected session BEFORE provider launch.
+  get-session [options]     Fetch one connected session: lifecycle status, capture integrity
+                            (orthogonal to…
+  list-sessions [options]   List connected sessions in a workspace, filterable by project, operator,
+                            provid…
+  help [command]            display help for command

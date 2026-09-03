@@ -1,0 +1,16 @@
+{
+  "description": "Acme reference hook: at session start, put the connected Jentrix session's status into context. Read-only, exits 0 when the CLI is absent or no session is connected, no credential in argv. Codex keeps it inactive until the operator trusts it with /hooks. A customer plugin's hooks resolve `jentrix` through PATH (the absolute-path pin is applied only to the official plugin packages), hence the `command -v` guard.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'command -v jentrix >/dev/null 2>&1 || exit 0; jentrix session status 2>/dev/null || true'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

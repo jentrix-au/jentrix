@@ -1,0 +1,79 @@
+name: ci
+
+# The one continuous-integration lane of the open client (jentrix-au/jentrix):
+# the CLI package at the repository root and the two official plugin packages
+# under plugins/. Every push and pull request runs the same gates a release
+# runs, INCLUDING the cold-install smoke of the packed tarballs — a change that
+# only breaks the published artifact must go red here, not on a customer's
+# machine. The job is named `ci` because the `main` ruleset requires that
+# status check by name.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # The tree must agree with itself before anything else runs: package.json
+      # and CLI_VERSION equal, each plugin's manifest and package.json equal.
+      - name: Version guard
+        run: node scripts/check-version.mjs "$(node -p 'require("./package.json").version')"
+
+      # Unit tests PLUS the cold-install smoke, always on: `pnpm -r pack` the
+      # three packages, install the exact tarballs together into an empty
+      # project, run the installed `jentrix` bin, and stage both plugin
+      # packages from its dependency tree with `plugin install <p> --dry-run`.
+      - name: Unit tests and cold-install smoke (packed tarballs)
+        run: CLI_PACK_SMOKE=1 pnpm test
+
+      # The reference extensions under examples/ are what the authoring guides
+      # start from; they are validated the way a customer's CI would validate
+      # its own plugin (no provider binary needed).
+      - name: Validate the reference extensions
+        run: pnpm validate:examples
+
+      # Contract drift is INFORMATIONAL (PRD §5.4, D5): the production
+      # deployment may serve a newer digest than this tree adopted, and that is
+      # "compatible drift", never a failure. Re-adopt into a scratch directory
+      # and say so when it differs; the fix, when a maintainer wants it, is
+      # `node scripts/adopt-contract.mjs https://tm.jentrix.ai/api/mcp/contract`
+      # committed as a dependency update.
+      - name: Adopted contract vs the production endpoint (informational)
+        continue-on-error: true
+        run: |
+          out="$RUNNER_TEMP/contract"
+          node scripts/adopt-contract.mjs https://tm.jentrix.ai/api/mcp/contract --out "$out"
+          if cmp -s "$out/contract.json" contract.json; then
+            echo "adopted contract matches the production digest ($(node -p 'require("./contract.json").digest'))"
+          else
+            echo "::warning::contract drift — production serves $(node -p "require('$out/contract.json').digest") while this tree adopted $(node -p 'require("./contract.json").digest'); re-adopt when a release should track it (docs/compatibility.md)"
+          fi

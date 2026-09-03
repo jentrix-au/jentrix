@@ -1,0 +1,13 @@
+# cli/ is its own pnpm root (paired with .npmrc ignore-workspace=true, so
+# installs here never walk up into the app workspace) holding THREE packages
+# (open-client S3, PRD §5.2): the CLI and the two official plugin packages it
+# depends on with `workspace:*` — `pnpm pack` rewrites those to the exact
+# version, and `pnpm -r pack` produces the three tarballs a release publishes.
+packages:
+  - "."
+  - "plugins/claude"
+  - "plugins/codex"
+# tsx bundles esbuild; its postinstall only verifies/installs the platform
+# binary and is safe to run.
+allowBuilds:
+  esbuild: true

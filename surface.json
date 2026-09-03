@@ -1,0 +1,3960 @@
+{
+  "_generated": "jentrix adopt-contract — do not edit",
+  "generatedForToolCount": 64,
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Link a project to a board, task, repo, doc, decision, metric, or agent. For connected sessions, a REPO link uses the normalized lowercase \"owner/name\" as targetId (a GitHub URL is accepted and normalized) — the link that satisfies the session repo gate. Adding an edge that already exists is a no-op. Needs the workspace ADMIN role.",
+      "inputSchema": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "properties": {
+                  "allowedPaths": {
+                    "items": {
+                      "maxLength": 400,
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "type": "array"
+                  },
+                  "role": {
+                    "maxLength": 40,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-link attributes (e.g. agent role, repo allowed-paths)."
+          },
+          "projectId": {
+            "description": "Project to link from.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetId": {
+            "description": "ID or URL of the linked entity (board/task id, repo, doc URL…).",
+            "maxLength": 400,
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetType": {
+            "description": "Kind of the linked entity.",
+            "enum": [
+              "BOARD",
+              "TASK",
+              "REPO",
+              "DOC",
+              "AGENT",
+              "DECISION",
+              "METRIC"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId",
+          "targetType",
+          "targetId"
+        ],
+        "type": "object"
+      },
+      "name": "add_project_link",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Link two tasks of ANY board kind in the same workspace (cross-board allowed), e.g. a bug that BLOCKS a deal. Kinds: BLOCKS, DEPENDS_ON, RELATES_TO, DUPLICATES. Rejects BLOCKS/DEPENDS_ON edges that would create a cycle — the error names the cycle path by task key. Adding an edge that already exists is a no-op.",
+      "inputSchema": {
+        "properties": {
+          "fromTaskId": {
+            "description": "Task ID on the FROM side of the edge (any board kind).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "description": "Edge kind: BLOCKS (from blocks to), DEPENDS_ON (from depends on to), RELATES_TO (bidirectional marker), or DUPLICATES (from duplicates to). Only BLOCKS/DEPENDS_ON participate in cycle detection.",
+            "enum": [
+              "BLOCKS",
+              "DEPENDS_ON",
+              "RELATES_TO",
+              "DUPLICATES"
+            ],
+            "type": "string"
+          },
+          "toTaskId": {
+            "description": "Task ID on the TO side of the edge (any board kind, same workspace).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "fromTaskId",
+          "toTaskId",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "add_task_link",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Jentrix MVP: anchor an OPEN session to a work item + accountable owner after the operator confirmed the wizard's choices. The server builds the alignment snapshot (ids + display names), stores it on the session, and returns it — echo it VERBATIM to the operator. Re-aligning replaces the anchor and writes a visible activity row, never silently. The session's project/workspace are immutable — a different project means a new session. Requires expectedUpdatedAt (CAS). taskId null = \"no task — session-level work\".",
+      "inputSchema": {
+        "properties": {
+          "agentEmoji": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional emoji rendered before the producer label."
+          },
+          "agentLabel": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional producer label for this session (\"triage-bot\"). Null = the operator themself; absent leaves it unchanged."
+          },
+          "capture": {
+            "description": "TRACE capture mode for this session. OMIT to let the server resolve it: this session's previous value, then the operator's account default (Account → Capture), then the built-in off.",
+            "enum": [
+              "off",
+              "on"
+            ],
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
+            "description": "REQUIRED optimistic concurrency guard: the session's updatedAt from your last read; a mismatch fails with CONFLICT embedding the current state.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "ownerUserId": {
+            "description": "Accountable human owner (workspace member); defaults to the session operator.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "sessionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "skeleton": {
+            "description": "Activity-skeleton mode for this session, independent of capture. OMIT to let the server resolve it: this session's previous value, then the operator's account default, then the built-in on.",
+            "enum": [
+              "on",
+              "off"
+            ],
+            "type": "string"
+          },
+          "taskId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The aligned work item. Null/absent = \"no task — session-level work\"."
+          },
+          "tokenBudget": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 1000000000,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional token budget for this session. Crossing it records an activity row and badges the card; it never stops the session."
+          }
+        },
+        "required": [
+          "sessionId",
+          "expectedUpdatedAt"
+        ],
+        "type": "object"
+      },
+      "name": "align_agent_session",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Archive a board (admin scope + board ADMIN) — the inverse of unarchive_boards. Soft delete: the board and its tasks are retained and unarchive_boards reverses it.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board to archive.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
+      },
+      "name": "archive_board",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Archive a task (soft delete — it disappears from the board but is recoverable).",
+      "inputSchema": {
+        "properties": {
+          "taskId": {
+            "description": "ID of the task to archive (soft delete).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "archive_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Bind a TRUSTED current provider session/thread id (from provider lifecycle hooks or app-server context — never model-authored text) to a Jentrix session. With sessionId: late-binds a CLI-started session's provider thread (CAS). Without: attach-creates an ACTIVE session — v2 shape scopes by workspaceId (no Project), legacy shape by projectId for the compatibility window; repeating converges on the existing session by operator + workspace + repo (row creation runs the plan cap; convergence does not). A competing active binding fails SESSION_ALREADY_BOUND. Requires idempotencyKey.",
+      "inputSchema": {
+        "properties": {
+          "connection": {
+            "oneOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "managed",
+                    "type": "string"
+                  },
+                  "providerConnectionId": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "providerConnectionId"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "installationId": {
+                    "maxLength": 80,
+                    "minLength": 8,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "local",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "installationId"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "continuesSessionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "REQUIRED launch nonce: retrying with the same key and arguments returns the original result instead of creating a second session.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "importHistory": {
+            "description": "Operator chose to import prior VISIBLE provider history through a supported provider surface.",
+            "type": "boolean"
+          },
+          "projectId": {
+            "description": "LEGACY attach-create shape (compatibility window); the server derives the workspace from the project.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "claude",
+              "codex"
+            ],
+            "type": "string"
+          },
+          "providerSessionId": {
+            "description": "The current provider session/thread id from TRUSTED provider lifecycle context (hooks/app-server) — never model-authored text.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "repoOwnerName": {
+            "description": "Required when creating (no sessionId).",
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^[^/\\s]+\\/[^/\\s]+$",
+            "type": "string"
+          },
+          "sessionId": {
+            "description": "Existing STARTING/ACTIVE session to bind the provider thread to (CLI-start late binding). Omit to attach-create in one step.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "startBranch": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startDirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startHead": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspaceId": {
+            "description": "The session's workspace (v2 attach-create shape). No Project is required.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "connection",
+          "providerSessionId",
+          "idempotencyKey"
+        ],
+        "type": "object"
+      },
+      "name": "attach_agent_session",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Attach a first-class artifact (PR/diff/log/screenshot/eval report/run summary/…) linked to a task/project/run/decision/Work Order. EXTERNAL_URL storage takes a url; R2_OBJECT storage requires an uploadGrantId from POST /api/artifacts/upload-grant (REST, same bearer) after PUTting the bytes to its presigned uploadUrl — `jentrix artifact upload <file>` runs that whole flow. Returns the stored artifact record.",
+      "inputSchema": {
+        "properties": {
+          "approvalRequestId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "byteSize": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "creatorAgentId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decisionId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "memoryCandidateId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mimeType": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projectId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retainUntil": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retention": {
+            "default": "PERMANENT",
+            "enum": [
+              "PERMANENT",
+              "EXPIRING"
+            ],
+            "type": "string"
+          },
+          "runId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sessionId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Connected session that produced this artifact (must belong to the same workspace). Optional: the request's own validated session correlation is used when omitted."
+          },
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "storage": {
+            "enum": [
+              "EXTERNAL_URL",
+              "R2_OBJECT"
+            ],
+            "type": "string"
+          },
+          "taskId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "PR",
+              "BRANCH",
+              "COMMIT",
+              "PATCH",
+              "DIFF",
+              "SCREENSHOT",
+              "RECORDING",
+              "LOG",
+              "TRACE",
+              "CSV",
+              "PDF",
+              "DOC",
+              "MOCKUP",
+              "EVAL_REPORT",
+              "POLICY_REPORT",
+              "RUN_SUMMARY",
+              "DECISION_MEMO",
+              "SOURCE_DIGEST",
+              "MEMORY_NOMINATION",
+              "PLAN",
+              "FINDINGS",
+              "REPORT",
+              "DELIVERABLE",
+              "LEARNING",
+              "PROMPT",
+              "GOAL",
+              "PRD",
+              "GAP",
+              "ISSUE"
+            ],
+            "type": "string"
+          },
+          "uploadGrantId": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Server-issued upload grant (POST /api/artifacts/upload-grant) bound to workspace, exact object key, checksum, MIME type, size, and expiry. Required when storage is R2_OBJECT; consumed once."
+          },
+          "url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "default": "WORKSPACE",
+            "enum": [
+              "WORKSPACE",
+              "ADMINS",
+              "PRIVATE"
+            ],
+            "type": "string"
+          },
+          "workOrderId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "type",
+          "title",
+          "storage"
+        ],
+        "type": "object"
+      },
+      "name": "attach_artifact",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create up to 50 tasks in one column in a single transaction (all-or-nothing). Returns each new task's id, number, and key in input order.",
+      "inputSchema": {
+        "properties": {
+          "columnId": {
+            "description": "Target column for ALL created tasks (one column per call).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tasks": {
+            "description": "Tasks to create, in order (max 50).",
+            "items": {
+              "properties": {
+                "description": {
+                  "description": "Markdown description (optional).",
+                  "maxLength": 50000,
+                  "type": "string"
+                },
+                "dueAt": {
+                  "anyOf": [
+                    {
+                      "description": "ISO 8601 datetime (e.g. 2026-12-31T17:00:00Z).",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Due date (optional)."
+                },
+                "priority": {
+                  "description": "Priority: LOW, MEDIUM (default), HIGH, URGENT.",
+                  "enum": [
+                    "LOW",
+                    "MEDIUM",
+                    "HIGH",
+                    "URGENT"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "description": "Task title.",
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "columnId",
+          "tasks"
+        ],
+        "type": "object"
+      },
+      "name": "bulk_create_tasks",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Move up to 50 tasks to new columns at once (each appended to the end of its destination, in input order). Access is checked per task; valid moves apply in one transaction with per-item results.",
+      "inputSchema": {
+        "properties": {
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "moves": {
+            "description": "Moves to apply in order (max 50). Each task is appended to the end of its destination column.",
+            "items": {
+              "properties": {
+                "taskId": {
+                  "description": "Task to move.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "toColumnId": {
+                  "description": "Destination column (same board as the task).",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskId",
+                "toColumnId"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "moves"
+        ],
+        "type": "object"
+      },
+      "name": "bulk_move_tasks",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update up to 50 tasks at once. Access is checked per task; valid updates apply in one transaction and the per-item result array reports any failures so you can retry just those.",
+      "inputSchema": {
+        "properties": {
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "updates": {
+            "description": "Per-task updates (max 50). Each entry needs taskId; only provided fields change.",
+            "items": {
+              "properties": {
+                "description": {
+                  "description": "New markdown description.",
+                  "maxLength": 50000,
+                  "type": "string"
+                },
+                "dueAt": {
+                  "anyOf": [
+                    {
+                      "description": "ISO 8601 datetime (e.g. 2026-12-31T17:00:00Z).",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "New due date, or null to clear."
+                },
+                "expectedUpdatedAt": {
+                  "description": "Optimistic concurrency guard: the entity's updatedAt from your last read. If it changed since, the call fails with CONFLICT and the error embeds the current entity.",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                  "type": "string"
+                },
+                "priority": {
+                  "description": "New priority.",
+                  "enum": [
+                    "LOW",
+                    "MEDIUM",
+                    "HIGH",
+                    "URGENT"
+                  ],
+                  "type": "string"
+                },
+                "taskId": {
+                  "description": "ID of the task to update.",
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "title": {
+                  "description": "New title.",
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskId"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "updates"
+        ],
+        "type": "object"
+      },
+      "name": "bulk_update_tasks",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Close a session with an honest lifecycle outcome (COMPLETED normal end / INTERRUPTED crash / CANCELLED pre-first-turn abort). The server verifies the trace-part manifest against durable artifacts, stores the deterministic RUN_SUMMARY, and sets captureComplete ONLY when every expected part and the summary are acknowledged — lifecycle and capture integrity stay orthogonal. Requires expectedUpdatedAt (CAS).",
+      "inputSchema": {
+        "properties": {
+          "acknowledgeEvidenceGaps": {
+            "description": "Close even with unmet evidence-floor checks (E1–E3); each unmet check is stamped MISSING into the summary's Review readiness.",
+            "type": "boolean"
+          },
+          "captureError": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commitCount": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CLI-counted commits in startHead..endHead; absent = not counted (HEAD movement is then the only signal)."
+          },
+          "endBranch": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endDirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endHead": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedUpdatedAt": {
+            "description": "REQUIRED optimistic concurrency guard: the session's updatedAt from your last read; a mismatch fails with CONFLICT embedding the current state.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "manifest": {
+            "description": "Expected TRACE parts; capture is complete only when every part is acknowledged server-side.",
+            "properties": {
+              "parts": {
+                "items": {
+                  "properties": {
+                    "checksum": {
+                      "maxLength": 128,
+                      "minLength": 8,
+                      "type": "string"
+                    },
+                    "part": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "part",
+                    "checksum"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 10000,
+                "type": "array"
+              }
+            },
+            "required": [
+              "parts"
+            ],
+            "type": "object"
+          },
+          "outcome": {
+            "description": "Lifecycle outcome: COMPLETED for a normal provider end, INTERRUPTED for a detected crash, CANCELLED for a pre-first-turn abort. Capture integrity is orthogonal and server-computed.",
+            "enum": [
+              "COMPLETED",
+              "INTERRUPTED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          },
+          "sessionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "description": "Provider-RECEIPT token rollups and measured timing only — never estimated. Wall time is server-derived.",
+            "properties": {
+              "cacheCreation1hTokens": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cacheCreationTokens": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cacheReadTokens": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "coverage": {
+                "enum": [
+                  "COMPLETE",
+                  "PARTIAL",
+                  "UNAVAILABLE"
+                ],
+                "type": "string"
+              },
+              "inputTokens": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "missingRanges": {
+                "description": "Named missing receipt/interval ranges when coverage is PARTIAL.",
+                "items": {
+                  "maxLength": 400,
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              "outputTokens": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "perModel": {
+                "description": "Cumulative per-model receipt rollups; the heartbeat attributes per-model deltas to the open alignment interval.",
+                "items": {
+                  "properties": {
+                    "cacheCreation1hTokens": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cacheCreationTokens": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cacheReadTokens": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "inputTokens": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "modelId": {
+                      "anyOf": [
+                        {
+                          "maxLength": 120,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Null = receipts whose model was never observed."
+                    },
+                    "outputTokens": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reasoningOutputTokens": {
+                      "anyOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "modelId",
+                    "inputTokens",
+                    "outputTokens",
+                    "cacheReadTokens",
+                    "cacheCreationTokens",
+                    "reasoningOutputTokens"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              "providerActiveDurationMs": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reasoningOutputTokens": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "toolDurationMs": {
+                "anyOf": [
+                  {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "coverage"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "sessionId",
+          "outcome",
+          "expectedUpdatedAt"
+        ],
+        "type": "object"
+      },
+      "name": "complete_agent_session",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a STARTING connected session BEFORE provider launch. v2 shape: workspaceId scopes the session (membership validated, plan cap applied; no Project). Legacy shape (compatibility window): projectId derives the workspace and keeps the repo-link check. No model is invoked. Requires idempotencyKey (the CLI launch nonce).",
+      "inputSchema": {
+        "properties": {
+          "connection": {
+            "oneOf": [
+              {
+                "properties": {
+                  "kind": {
+                    "const": "managed",
+                    "type": "string"
+                  },
+                  "providerConnectionId": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "providerConnectionId"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "installationId": {
+                    "maxLength": 80,
+                    "minLength": 8,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "local",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "installationId"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "continuesSessionId": {
+            "description": "Prior Jentrix session this new work period continues (same provider thread allowed).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "REQUIRED launch nonce: retrying with the same key and arguments returns the original result instead of creating a second session.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "description": "LEGACY shape (compatibility window): the confirmed project, from which the server derives the workspace and keeps the old repo-link check. New clients send workspaceId instead.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "claude",
+              "codex"
+            ],
+            "type": "string"
+          },
+          "repoOwnerName": {
+            "description": "Normalized repository identity as lowercase \"owner/name\".",
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^[^/\\s]+\\/[^/\\s]+$",
+            "type": "string"
+          },
+          "startBranch": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startDirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startHead": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspaceId": {
+            "description": "The session's workspace (v2 shape). Membership is validated and the plan cap applies here; no Project is required.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "connection",
+          "repoOwnerName",
+          "idempotencyKey"
+        ],
+        "type": "object"
+      },
+      "name": "create_agent_session",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Attach a file to a task by sending its bytes inline as base64 — the agent path for evidence (a screenshot, a rendered chart, a log excerpt). Max 5 MB decoded; images, PDF, JSON, CSV, and plain text only. Bigger or other file types stay a UI upload. Read attachments back with list_attachments.",
+      "inputSchema": {
+        "properties": {
+          "contentBase64": {
+            "description": "Base64-encoded file bytes (no data: URI prefix). Max 5 MB decoded.",
+            "maxLength": 7130317,
+            "minLength": 1,
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels, for card previews.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mimeType": {
+            "description": "Content type. Images, PDF, JSON, and plain text only.",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/gif",
+              "image/webp",
+              "application/pdf",
+              "application/json",
+              "text/plain",
+              "text/markdown",
+              "text/csv"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "File name shown on the card, e.g. 'before-after.png'.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "description": "Task to attach the file to.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels, for card previews.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "taskId",
+          "name",
+          "mimeType",
+          "contentBase64"
+        ],
+        "type": "object"
+      },
+      "name": "create_attachment",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a board in a workspace with the default columns for its kind (TASKS/CRM/SUPPORT/BUGS/ROADMAP, default TASKS).",
+      "inputSchema": {
+        "properties": {
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "description": "Board kind (default TASKS). Controls the default columns seeded and which sidecar tasks get (CRM=Deal, SUPPORT=Ticket, BUGS=BugReport, ROADMAP=Initiative).",
+            "enum": [
+              "TASKS",
+              "CRM",
+              "SUPPORT",
+              "BUGS",
+              "ROADMAP"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "Board name (max 80 chars).",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Workspace to create the board in.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "create_board",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add a comment to a task (markdown body, max 20k chars).",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "description": "Comment body (markdown, max 20k chars).",
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "mentions": {
+            "description": "User ids to @mention — they get notified. Must be members of the task's workspace (discover via list_members).",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "taskId": {
+            "description": "Task to comment on.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "body"
+        ],
+        "type": "object"
+      },
+      "name": "create_comment",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a project (the container that links boards/tasks/repos/decisions, with owner/constraints/milestones/risks). Admin-gated.",
+      "inputSchema": {
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "properties": {
+                  "maxRuns": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "spendUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spend and run-count guardrails. Pass null to clear."
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "properties": {
+                  "budget": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "client": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "compliance": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "operational": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "privacy": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "quality": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "repo": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "timeline": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Project constraints by category. Pass null to clear."
+          },
+          "goalStatement": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plain-language desired outcome. Pass null to clear."
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name (max 160 chars).",
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ownerId": {
+            "description": "Human accountable owner (must be a workspace member).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parent project id for \"program\" grouping (optional)."
+          },
+          "successMetrics": {
+            "anyOf": [
+              {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "quant",
+                        "qual"
+                      ],
+                      "type": "string"
+                    },
+                    "name": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "target": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "unit": {
+                      "maxLength": 40,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "target",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Success metrics. Pass null to clear."
+          },
+          "workspaceId": {
+            "description": "Workspace this project belongs to. Discover via list_workspaces.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "name",
+          "ownerId"
+        ],
+        "type": "object"
+      },
+      "name": "create_project",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Add a subtask (checklist item) to a task.",
+      "inputSchema": {
+        "properties": {
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "description": "Parent task.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": {
+            "description": "Subtask title (max 200 chars).",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "name": "create_subtask",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a new task in a column. Returns the new task's ID, per-workspace number, and human-readable key (e.g. STK-42).",
+      "inputSchema": {
+        "properties": {
+          "columnId": {
+            "description": "Target column. Use list_columns(boardId) to discover.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "description": "Markdown description (optional, max 50k chars).",
+            "maxLength": 50000,
+            "type": "string"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "description": "ISO 8601 datetime (e.g. 2026-12-31T17:00:00Z).",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Due date (optional)."
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "priority": {
+            "description": "Priority: LOW, MEDIUM (default), HIGH, URGENT.",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "URGENT"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "description": "Short title for the task (max 200 chars).",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "columnId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "name": "create_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a new workspace and become its OWNER (write scope). REFUSED for a workspace-pinned token — a token scoped to one workspace cannot mint another (checked before any write). The name derives a unique slug and a task-key prefix, both write-once. Workspace DELETE stays UI-only.",
+      "inputSchema": {
+        "properties": {
+          "idempotencyKey": {
+            "description": "REQUIRED idempotency key: creating a workspace demands one, so a retried call replays the original result instead of minting a second workspace. Same key + same arguments within 24h replays the original response; same key + different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "idempotencyKey"
+        ],
+        "type": "object"
+      },
+      "name": "create_workspace",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Delete a comment permanently. Only the comment's author can delete it.",
+      "inputSchema": {
+        "properties": {
+          "commentId": {
+            "description": "Comment to delete.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "commentId"
+        ],
+        "type": "object"
+      },
+      "name": "delete_comment",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Delete a subtask permanently.",
+      "inputSchema": {
+        "properties": {
+          "subtaskId": {
+            "description": "Subtask to delete.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "subtaskId"
+        ],
+        "type": "object"
+      },
+      "name": "delete_subtask",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Fetch one connected session: lifecycle status, capture integrity (orthogonal to status), repository start/end state, linked summary/transcript artifacts, the stable usage object (provider-reported tokens or null — never estimated), and the append-only task-alignment interval history (alignments[], ordinal-ascending; the session's taskId mirrors the open interval).",
+      "inputSchema": {
+        "properties": {
+          "sessionId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "type": "object"
+      },
+      "name": "get_agent_session",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Get one artifact record plus a short-lived signed downloadUrl (internal R2 objects; provenance-gated) or the external URL — the tool-surface twin of the stacks://artifact/{id} resource, for clients that only call tools. Redacted artifacts resolve to a tombstone with no URL.",
+      "inputSchema": {
+        "properties": {
+          "artifactId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifactId"
+        ],
+        "type": "object"
+      },
+      "name": "get_artifact",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "THE orientation tool: board info + columns + concise task rows in one call. Use this first instead of list_boards → list_columns → list_tasks. Capped at 500 tasks (notice explains how to page the rest).",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board to snapshot. Discover via list_boards(workspaceId).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
+      },
+      "name": "get_board_snapshot",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Fetch a project with its owner, links, milestones, risks, and counts. Accepts projectId, or workspaceId + slug.",
+      "inputSchema": {
+        "properties": {
+          "projectId": {
+            "description": "Project ID. Provide projectId, or workspaceId + slug.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_project",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Fetch full details of a task including description, labels, assignees, subtasks, links, and recent activity. Accepts taskId, or workspaceId + number (the numeric part of a task key like STK-42). Pass response_format: 'concise' for scalars + counts only.",
+      "inputSchema": {
+        "properties": {
+          "number": {
+            "description": "Task number within the workspace (numeric part of the key).",
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "response_format": {
+            "description": "detailed (default): full task with description, labels, assignees, subtasks, sidecar, links, recent activity. concise: scalars + counts only.",
+            "enum": [
+              "concise",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "taskId": {
+            "description": "ID of the task to fetch. Provide either taskId, or workspaceId + number.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Workspace ID — combined with `number` to resolve a task by its human-readable key (STK-42 → number 42).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "get_task",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Report THIS token's context (read scope) so an agent fails fast on scope instead of probing with FORBIDDEN calls: effective + raw stored scopes (empty stored = grandfathered full access until rotated), workspace pinning, displayName/emoji identity, expiry, and the per-minute rate-limit window (limit / used / remaining / reset). NO bearer material is ever returned.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "get_token_context",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Invite a member to a workspace by email (admin scope; ADMIN role, but an OWNER-role invite requires the OWNER role). The default membership-governance pack parks this behind REQUIRE_APPROVAL, so an agent-alone call surfaces as a human-approvable request; an approved binding lets it through. Acceptance stays with the invitee.",
+      "inputSchema": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h replays the original result instead of creating a duplicate. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "default": "MEMBER",
+            "enum": [
+              "OWNER",
+              "ADMIN",
+              "MEMBER"
+            ],
+            "type": "string"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "email"
+        ],
+        "type": "object"
+      },
+      "name": "invite_member",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List the activity log for a task or a whole board, newest first. Filter by since (ISO timestamp), source ('ui' = humans, 'mcp' = agents), or activity type — e.g. diff what humans did since your last run.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Scope to a whole board. Provide taskId or boardId.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pagination cursor from a previous response's nextCursor."
+          },
+          "includeArchivedTasks": {
+            "description": "Board scope only: include history of archived tasks (default false).",
+            "type": "boolean"
+          },
+          "since": {
+            "description": "Only activity at/after this ISO timestamp.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "source": {
+            "description": "Filter by actor type: 'ui' = humans, 'mcp' = agents.",
+            "enum": [
+              "ui",
+              "mcp"
+            ],
+            "type": "string"
+          },
+          "take": {
+            "description": "Page size (default 50, max 100).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "taskId": {
+            "description": "Scope to one task. Provide taskId or boardId.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "description": "Filter by activity type (e.g. TASK_MOVED, COMMENT_CREATED).",
+            "enum": [
+              "TASK_CREATED",
+              "TASK_UPDATED",
+              "TASK_MOVED",
+              "TASK_ARCHIVED",
+              "TASK_RESTORED",
+              "LABEL_ADDED",
+              "LABEL_REMOVED",
+              "ASSIGNEE_ADDED",
+              "ASSIGNEE_REMOVED",
+              "DUE_DATE_SET",
+              "DUE_DATE_CLEARED",
+              "PRIORITY_CHANGED",
+              "COMMENT_CREATED",
+              "COMMENT_EDITED",
+              "COMMENT_DELETED",
+              "ATTACHMENT_ADDED",
+              "ATTACHMENT_REMOVED",
+              "SUBTASK_ADDED",
+              "SUBTASK_COMPLETED",
+              "DEAL_UPDATED",
+              "CONTACT_LINKED",
+              "CONTACT_UNLINKED",
+              "BUG_UPDATED",
+              "BUG_RESOLVED",
+              "BUG_REOPENED",
+              "TICKET_UPDATED",
+              "CUSTOMER_LINKED",
+              "CUSTOMER_UNLINKED",
+              "INITIATIVE_UPDATED",
+              "DEPENDENCY_ADDED",
+              "DEPENDENCY_REMOVED",
+              "SLA_BREACHED",
+              "AUTOMATION_RAN",
+              "GITHUB_ISSUE_LINKED",
+              "GITHUB_ISSUE_UNLINKED",
+              "GITHUB_SYNCED",
+              "PROJECT_CREATED",
+              "PROJECT_UPDATED",
+              "PROJECT_ARCHIVED",
+              "PROJECT_LINK_ADDED",
+              "PROJECT_LINK_REMOVED",
+              "PROJECT_MILESTONE_ADDED",
+              "PROJECT_MILESTONE_UPDATED",
+              "PROJECT_RISK_ADDED",
+              "PROJECT_RISK_UPDATED",
+              "DECISION_PROPOSED",
+              "DECISION_ACCEPTED",
+              "DECISION_REJECTED",
+              "DECISION_SUPERSEDED",
+              "DECISION_REVISED",
+              "WORK_ORDER_CREATED",
+              "WORK_ORDER_VERSIONED",
+              "WORK_ORDER_LAUNCHED",
+              "CONTEXT_PACK_CREATED",
+              "AGENT_REGISTERED",
+              "AGENT_UPDATED",
+              "AGENT_PAUSED",
+              "AGENT_DISABLED",
+              "AGENT_CREDENTIAL_LINKED",
+              "AGENT_CREDENTIAL_UNLINKED",
+              "POLICY_CREATED",
+              "POLICY_UPDATED",
+              "POLICY_DELETED",
+              "POLICY_DENIED",
+              "APPROVAL_REQUESTED",
+              "APPROVAL_RESOLVED",
+              "CREDENTIAL_GRANT_ISSUED",
+              "CREDENTIAL_GRANT_REVOKED",
+              "CREDENTIAL_GRANT_EXPIRED",
+              "LEASE_ACQUIRED",
+              "LEASE_RENEWED",
+              "LEASE_RELEASED",
+              "LEASE_TAKEN_OVER",
+              "SPEC_CREATED",
+              "SPEC_ACCEPTED",
+              "ARTIFACT_ADDED",
+              "ARTIFACT_REDACTED",
+              "SOURCE_REGISTERED",
+              "SOURCE_UPDATED",
+              "OUTCOME_RECORDED",
+              "INCIDENT_OPENED",
+              "INCIDENT_UPDATED",
+              "INCIDENT_RESOLVED",
+              "SIMULATION_CREATED",
+              "SIMULATION_APPROVED",
+              "PLAYBOOK_DRAFTED",
+              "PLAYBOOK_PROMOTED",
+              "COMMUNICATION_LINKED",
+              "AGENT_JOB_STARTED",
+              "AGENT_JOB_PLAN_SUBMITTED",
+              "AGENT_JOB_REVIEWED",
+              "AGENT_JOB_EXECUTION_SUBMITTED",
+              "AGENT_JOB_BLOCKED",
+              "AGENT_JOB_COMPLETED",
+              "AGENT_JOB_CANCELLED",
+              "AGENT_RUN_CLAIMED",
+              "AGENT_RUN_FAILED",
+              "PR_LINKED",
+              "PR_UPDATED",
+              "CI_RUN_UPDATED",
+              "CI_CHECK_FAILED",
+              "DEPLOYMENT_RECORDED",
+              "RELEASE_CREATED",
+              "ROLLBACK_RECORDED",
+              "RELEASE_UPDATED",
+              "HARNESS_CREATED",
+              "HARNESS_UPDATED",
+              "HARNESS_ARCHIVED",
+              "HARNESS_STAGE_CREATED",
+              "HARNESS_STAGE_UPDATED",
+              "HARNESS_ARTIFACT_ADDED",
+              "HARNESS_FINDING_CREATED",
+              "HARNESS_FINDING_RESOLVED",
+              "HARNESS_REGISTRY_SNAPSHOTTED",
+              "HARNESS_SPEC_VALIDATED",
+              "HARNESS_PLAN_VALIDATED",
+              "HARNESS_STAGE_PLAN_ADDED",
+              "HARNESS_PROMPT_TEMPLATE_ADDED",
+              "HARNESS_STAGE_STARTED",
+              "HARNESS_STAGE_VALIDATED",
+              "HARNESS_STAGE_COMMITTED",
+              "HARNESS_FROZEN",
+              "HARNESS_UNFROZEN",
+              "HARNESS_CANCELLED",
+              "HARNESS_COMPLETED",
+              "HARNESS_BLOCKED",
+              "WORKLOAD_IDENTITY_ISSUED",
+              "RUN_CAPABILITY_EXCHANGED",
+              "EVAL_RUN_STARTED",
+              "EVAL_RUN_COMPLETED",
+              "EVAL_EVIDENCE_CAPTURED",
+              "AGENT_EVAL_ROLLUP_UPDATED",
+              "AGENT_RELEASE_CREATED",
+              "AGENT_RELEASE_STATUS_CHANGED",
+              "RELEASE_POINTER_TRANSITIONED",
+              "RELEASE_ACTIVATION_WAIVER_GRANTED",
+              "EXPERIMENT_STARTED",
+              "EXPERIMENT_PROMOTED",
+              "EXPERIMENT_ROLLED_BACK",
+              "EXPERIMENT_TERMINATED",
+              "MEMORY_ITEM_NOMINATED",
+              "MEMORY_ITEM_PROMOTED",
+              "MEMORY_ITEM_REACCEPTED",
+              "MEMORY_ITEM_REJECTED",
+              "MEMORY_ITEM_QUARANTINED",
+              "MEMORY_ITEM_SUPERSEDED",
+              "MEMORY_ITEM_EXPIRED",
+              "WORKER_STATUS_CHANGED",
+              "PROVIDER_CONNECTION_CREATED",
+              "PROVIDER_CONNECTION_VERIFIED",
+              "PROVIDER_CONNECTION_ATTESTED",
+              "PROVIDER_CONNECTION_ARCHIVED",
+              "PROVIDER_CLAIM_CREDENTIAL_ISSUED",
+              "MODEL_PROFILE_CREATED",
+              "MODEL_PROFILE_DISCOVERED",
+              "MODEL_PROFILE_ARCHIVED",
+              "HARNESS_TEMPLATE_CREATED",
+              "HARNESS_TEMPLATE_UPDATED",
+              "HARNESS_TEMPLATE_PUBLISHED",
+              "HARNESS_TEMPLATE_ARCHIVED",
+              "HARNESS_TEMPLATE_RESTORED",
+              "HARNESS_LAUNCHED",
+              "HARNESS_DISPOSITION_RECORDED",
+              "HARNESS_NEXT_ACTION_RECORDED",
+              "PERMISSION_TEMPLATE_ARCHIVED",
+              "PERMISSION_TEMPLATE_RESTORED",
+              "AGENT_JOB_LINKED",
+              "AGENT_JOB_ARCHIVED",
+              "SIMULATION_ARCHIVED",
+              "PLAYBOOK_ARCHIVED",
+              "AGENT_SESSION_STARTED",
+              "AGENT_SESSION_RESUMED",
+              "AGENT_SESSION_COMPLETED",
+              "AGENT_SESSION_INTERRUPTED",
+              "AGENT_SESSION_CANCELLED",
+              "AGENT_SESSION_ALIGNED",
+              "SESSION_BUDGET_EXCEEDED",
+              "REVIEW_ACCEPTED",
+              "REVIEW_RETURNED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_activity",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List connected sessions in a workspace, filterable by project, operator, provider, lifecycle status, and captureComplete (the two dimensions are independent). Paginated; provider thread ids are omitted from list output.",
+      "inputSchema": {
+        "properties": {
+          "captureComplete": {
+            "type": "boolean"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operatorUserId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "claude",
+              "codex"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          },
+          "take": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_agent_sessions",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List first-class artifacts (PR/diff/log/screenshot/eval report/run summary/…) in a workspace, filterable by project/task/run/workOrder/session/type/creator. Internal (R2) artifacts expose hasObject; get_artifact returns the signed download URL. Redacted artifacts remain as tombstones.",
+      "inputSchema": {
+        "properties": {
+          "creatorId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "runId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sessionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "PR",
+              "BRANCH",
+              "COMMIT",
+              "PATCH",
+              "DIFF",
+              "SCREENSHOT",
+              "RECORDING",
+              "LOG",
+              "TRACE",
+              "CSV",
+              "PDF",
+              "DOC",
+              "MOCKUP",
+              "EVAL_REPORT",
+              "POLICY_REPORT",
+              "RUN_SUMMARY",
+              "DECISION_MEMO",
+              "SOURCE_DIGEST",
+              "MEMORY_NOMINATION",
+              "PLAN",
+              "FINDINGS",
+              "REPORT",
+              "DELIVERABLE",
+              "LEARNING",
+              "PROMPT",
+              "GOAL",
+              "PRD",
+              "GAP",
+              "ISSUE"
+            ],
+            "type": "string"
+          },
+          "workOrderId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_artifacts",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List a task's attachments with short-lived signed download URLs (~5 min). Upload with create_attachment.",
+      "inputSchema": {
+        "properties": {
+          "taskId": {
+            "description": "Task whose attachments to list.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "list_attachments",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List boards in a workspace.",
+      "inputSchema": {
+        "properties": {
+          "workspaceId": {
+            "description": "Workspace ID. Discover via list_workspaces.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_boards",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List columns of a board, ordered by position. Columns represent statuses on the kanban board.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board ID. Discover via list_boards(workspaceId).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
+      },
+      "name": "list_columns",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List a task's comments oldest-first, with authors.",
+      "inputSchema": {
+        "properties": {
+          "taskId": {
+            "description": "Task whose comments to list.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "list_comments",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List a workspace's pending (unaccepted) invitations (admin scope + ADMIN role): id, email, role, inviter, created/expiry. The invite token is never returned. Use the id with revoke_invitation.",
+      "inputSchema": {
+        "properties": {
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_invitations",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List labels available on a board.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board ID.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
+      },
+      "name": "list_labels",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List members of a workspace. Use the userId field when assigning tasks.",
+      "inputSchema": {
+        "properties": {
+          "workspaceId": {
+            "description": "Workspace ID.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_members",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List projects in a workspace with owner, status, and child/link/milestone/risk/decision counts. Filter by status, owner, or parent project. Paginated; pass nextCursor from the previous response to continue.",
+      "inputSchema": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "includeArchived": {
+            "description": "Include archived projects (default false).",
+            "type": "boolean"
+          },
+          "ownerId": {
+            "description": "Filter by owner.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filter by parent project."
+          },
+          "status": {
+            "description": "Filter by status.",
+            "enum": [
+              "PLANNING",
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED",
+              "CANCELLED",
+              "ARCHIVED"
+            ],
+            "type": "string"
+          },
+          "take": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "Workspace ID.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_projects",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List a task's outgoing and incoming links with the linked tasks' keys, titles, and boards.",
+      "inputSchema": {
+        "properties": {
+          "taskId": {
+            "description": "Task whose outgoing and incoming links to list.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "list_task_links",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List tasks in a board or column with board/column names, total count, and pagination. Concise by default — pass response_format: 'detailed' for sidecars/labels/assignees. At least one of boardId or columnId is required.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Filter by board. Provide either boardId or columnId.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "columnId": {
+            "description": "Filter by column. Provide either boardId or columnId.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pagination cursor from a previous response's nextCursor."
+          },
+          "includeArchived": {
+            "description": "Include archived tasks (default false).",
+            "type": "boolean"
+          },
+          "response_format": {
+            "description": "concise (default): ids, keys, titles, column/status, priority, due date. detailed: adds timestamps, labels, assignees, kind-specific sidecars, link counts.",
+            "enum": [
+              "concise",
+              "detailed"
+            ],
+            "type": "string"
+          },
+          "take": {
+            "description": "Page size (default 50, max 100).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "list_tasks",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List workspaces the authenticated user belongs to, with their role.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_workspaces",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create, rename, move, or archive a board column (action: 'create' | 'rename' | 'move' | 'archive'). create needs boardId+name; rename needs columnId+name; move needs columnId + beforeColumnId/afterColumnId; archive needs columnId (tasks in it disappear from the board with it).",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "description": "Which column operation to perform.",
+            "enum": [
+              "create",
+              "rename",
+              "move",
+              "archive"
+            ],
+            "type": "string"
+          },
+          "afterColumnId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For action=move: sibling the column lands BEFORE."
+          },
+          "beforeColumnId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For action=move: sibling the column lands AFTER."
+          },
+          "boardId": {
+            "description": "Required for action=create.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "columnId": {
+            "description": "Required for rename/move/archive.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "Column name — required for create and rename.",
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "manage_columns",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create, update, or delete a board label (action: 'create' | 'update' | 'delete'). create needs boardId+name+color; update needs labelId and name and/or color; delete needs labelId. Creating an existing name returns the existing label. Use set_task_labels to apply labels to tasks.",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "description": "Which label operation to perform.",
+            "enum": [
+              "create",
+              "update",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "boardId": {
+            "description": "Required for action=create.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "color": {
+            "description": "Hex color — required for create, optional for update.",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "type": "string"
+          },
+          "labelId": {
+            "description": "Required for action=update and action=delete.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "Label name — required for create, optional for update.",
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "manage_labels",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Move a task to a different column (= change status on the kanban board) and/or reorder it. Use beforeTaskId/afterTaskId for placement; omit both to append to the end.",
+      "inputSchema": {
+        "properties": {
+          "afterTaskId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the neighbor that should end up immediately AFTER the moved task — the moved task is placed just before it."
+          },
+          "beforeTaskId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the neighbor that should end up immediately BEFORE the moved task — the moved task is placed just after it. Provide beforeTaskId and/or afterTaskId for placement; omit both to append to the end of the column."
+          },
+          "expectedUpdatedAt": {
+            "description": "Optimistic concurrency guard: the entity's updatedAt from your last read. If it changed since, the call fails with CONFLICT and the error embeds the current entity.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "taskId": {
+            "description": "ID of the task to move.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "toColumnId": {
+            "description": "Destination column (must belong to same board). Moving = changing status.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "toColumnId"
+        ],
+        "type": "object"
+      },
+      "name": "move_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove a member from a workspace (admin scope + ADMIN role). You cannot remove YOURSELF, and the last OWNER cannot be removed. Governed by the membership pack (REQUIRE_APPROVAL by default). Concurrency is VALUE-CAS: pass `expectedRole`; `expectedUpdatedAt` is refused (M19.2). A value-CAS mismatch returns CONFLICT embedding the current role.",
+      "inputSchema": {
+        "properties": {
+          "expectedRole": {
+            "description": "Value-CAS guard: the member's role you last read. If it changed since, the call fails with CONFLICT.",
+            "enum": [
+              "OWNER",
+              "ADMIN",
+              "MEMBER"
+            ],
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
+            "description": "NOT USED on this plane and REFUSED with INVALID_INPUT. Workspaces and memberships carry no updatedAt (M19.2), so concurrency here is VALUE-CAS: pass expectedName (workspace) / expectedRole (membership) instead.",
+            "type": "string"
+          },
+          "memberUserId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "memberUserId"
+        ],
+        "type": "object"
+      },
+      "name": "remove_member",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove a project link (exact projectId + targetType + targetId match). Removing a link that does not exist is a no-op. Needs the workspace ADMIN role.",
+      "inputSchema": {
+        "properties": {
+          "projectId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetId": {
+            "maxLength": 400,
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetType": {
+            "enum": [
+              "BOARD",
+              "TASK",
+              "REPO",
+              "DOC",
+              "AGENT",
+              "DECISION",
+              "METRIC"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId",
+          "targetType",
+          "targetId"
+        ],
+        "type": "object"
+      },
+      "name": "remove_project_link",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Remove a task link (exact fromTaskId + toTaskId + kind match). No-op if the edge does not exist.",
+      "inputSchema": {
+        "properties": {
+          "fromTaskId": {
+            "description": "Task ID on the FROM side.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "description": "Edge kind to remove (BLOCKS/DEPENDS_ON/RELATES_TO/DUPLICATES).",
+            "enum": [
+              "BLOCKS",
+              "DEPENDS_ON",
+              "RELATES_TO",
+              "DUPLICATES"
+            ],
+            "type": "string"
+          },
+          "toTaskId": {
+            "description": "Task ID on the TO side.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "fromTaskId",
+          "toTaskId",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "name": "remove_task_link",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Rename a board.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board to rename.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "New board name.",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "rename_board",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Resolve non-archived projects across every workspace the caller belongs to whose linked repository matches a normalized \"owner/name\". Used by connected-session setup to narrow project choices from the checkout; requires an unpinned human credential (workspace-pinned tokens are refused).",
+      "inputSchema": {
+        "properties": {
+          "repoOwnerName": {
+            "description": "Normalized repository identity as lowercase \"owner/name\" (e.g. \"acme/api\").",
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^[^/\\s]+\\/[^/\\s]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repoOwnerName"
+        ],
+        "type": "object"
+      },
+      "name": "resolve_projects_for_repo",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Reopen an eligible INTERRUPTED session (original operator or workspace admin; same project and repository — continuity failures are SESSION_RESUME_CONFLICT). Requires expectedUpdatedAt (CAS). A deliberate new work period should instead create a new session with continuesSessionId.",
+      "inputSchema": {
+        "properties": {
+          "expectedUpdatedAt": {
+            "description": "REQUIRED optimistic concurrency guard: the session's updatedAt from your last read; a mismatch fails with CONFLICT embedding the current state.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "providerSessionId": {
+            "description": "New provider thread id when the provider minted one on resume; omit to keep the stored thread.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "repoOwnerName": {
+            "description": "The current checkout — must match the session's recorded repository.",
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^[^/\\s]+\\/[^/\\s]+$",
+            "type": "string"
+          },
+          "sessionId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "repoOwnerName",
+          "expectedUpdatedAt"
+        ],
+        "type": "object"
+      },
+      "name": "resume_agent_session",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Revoke a pending workspace invitation (admin scope + ADMIN role). Discover the invitationId via list_invitations.",
+      "inputSchema": {
+        "properties": {
+          "invitationId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitationId"
+        ],
+        "type": "object"
+      },
+      "name": "revoke_invitation",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search the BODIES of typed artifacts (plan/decision/findings/report/diff/deliverable/learning/prompt/goal/prd) workspace-wide — full-text, websearch syntax (words, quoted phrases, -negation). This is how a LEARNING or a FINDINGS write-up is found again by what it says rather than by a title someone remembers. The index is built from the REDACTED stored text, so a secret redacted at ingest was never indexed. Archived and redacted artifacts are excluded; raw TRACE transcript parts are not searchable. Fetch a hit's content with get_artifact.",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "description": "Search text matched against artifact titles and their stored (redacted) bodies. Websearch syntax supported.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "take": {
+            "description": "Max hits to return (default 20).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "Workspace to search. Discover via list_workspaces.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_artifacts",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Search tasks workspace-wide across all boards: exact task key (for example STK-42), full-text (websearch syntax — words, quoted phrases, -negation) over title/description/comments, plus case-insensitive substring on title/description. Exact key hits rank first. Returns concise rows with board/column names. Archived tasks excluded.",
+      "inputSchema": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pagination cursor from a previous response's nextCursor."
+          },
+          "query": {
+            "description": "Search text or an exact task key (for example STK-42) — matched against task keys, titles, descriptions, and comment bodies (websearch syntax supported).",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "take": {
+            "description": "Page size (default 25, max 100).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "Workspace to search. Discover via list_workspaces.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_tasks",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Change a member's role (admin scope; the op requires the OWNER role, and the last owner cannot be demoted). Governed by the membership pack (REQUIRE_APPROVAL by default). Concurrency is VALUE-CAS: pass `expectedRole` (the role you last read); `expectedUpdatedAt` is refused (M19.2). A value-CAS mismatch returns CONFLICT embedding the current role.",
+      "inputSchema": {
+        "properties": {
+          "expectedRole": {
+            "description": "Value-CAS guard: the member's role you last read. If it changed since, the call fails with CONFLICT.",
+            "enum": [
+              "OWNER",
+              "ADMIN",
+              "MEMBER"
+            ],
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
+            "description": "NOT USED on this plane and REFUSED with INVALID_INPUT. Workspaces and memberships carry no updatedAt (M19.2), so concurrency here is VALUE-CAS: pass expectedName (workspace) / expectedRole (membership) instead.",
+            "type": "string"
+          },
+          "memberUserId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "OWNER",
+              "ADMIN",
+              "MEMBER"
+            ],
+            "type": "string"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "memberUserId",
+          "role"
+        ],
+        "type": "object"
+      },
+      "name": "set_member_role",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set the full list of assignees on a task. REPLACES existing assignees. All user IDs must be members of the task's workspace.",
+      "inputSchema": {
+        "properties": {
+          "taskId": {
+            "description": "ID of the task.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "userIds": {
+            "description": "Full list of user IDs to assign. REPLACES all existing assignees. All users must be members of the task's workspace.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "taskId",
+          "userIds"
+        ],
+        "type": "object"
+      },
+      "name": "set_task_assignees",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Set the full list of labels on a task. REPLACES existing labels; pass current+new to add, pass current-removed to delete. All label IDs must belong to the task's board.",
+      "inputSchema": {
+        "properties": {
+          "labelIds": {
+            "description": "Full list of label IDs to apply. REPLACES all existing labels — pass current+new to add, pass current-removed to delete.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "taskId": {
+            "description": "ID of the task.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "labelIds"
+        ],
+        "type": "object"
+      },
+      "name": "set_task_labels",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Mark a subtask complete or incomplete.",
+      "inputSchema": {
+        "properties": {
+          "completed": {
+            "description": "New completion state.",
+            "type": "boolean"
+          },
+          "subtaskId": {
+            "description": "Subtask to toggle.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "subtaskId",
+          "completed"
+        ],
+        "type": "object"
+      },
+      "name": "toggle_subtask",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Restore one to 50 boards in a workspace atomically. Requires workspace admin access; already-active boards are idempotent no-ops.",
+      "inputSchema": {
+        "properties": {
+          "boardIds": {
+            "description": "One to 50 unique board ids to restore. Discover archived ids via list_boards(workspaceId).",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "workspaceId": {
+            "description": "Workspace that owns every board in boardIds.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "boardIds"
+        ],
+        "type": "object"
+      },
+      "name": "unarchive_boards",
+      "toolClass": "admin"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update the BugReport sidecar on a task whose board kind = BUGS. Only provided fields are changed; pass null to clear. Setting resolvedAt records BUG_RESOLVED; clearing it records BUG_REOPENED.",
+      "inputSchema": {
+        "properties": {
+          "actualBehavior": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Actual behavior observed (markdown). Null to clear."
+          },
+          "affectedVersion": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Affected version (e.g. \"1.4.2\"). Null to clear."
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Environment / platform (e.g. \"macOS 14 / Chrome 122\"). Null to clear."
+          },
+          "expectedBehavior": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expected behavior (markdown). Null to clear."
+          },
+          "expectedUpdatedAt": {
+            "description": "Optimistic concurrency guard: the entity's updatedAt from your last read. If it changed since, the call fails with CONFLICT and the error embeds the current entity.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "reproSteps": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steps to reproduce (markdown). Null to clear."
+          },
+          "resolvedAt": {
+            "anyOf": [
+              {
+                "description": "ISO 8601 datetime (e.g. 2026-12-31T17:00:00Z).",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Resolution timestamp. Set to mark resolved; null to reopen."
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "TRIVIAL",
+                  "MINOR",
+                  "MAJOR",
+                  "CRITICAL",
+                  "BLOCKER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bug severity (TRIVIAL/MINOR/MAJOR/CRITICAL/BLOCKER). Null to clear."
+          },
+          "taskId": {
+            "description": "ID of the task whose BugReport sidecar to update (board must be kind=BUGS).",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "update_bug_report",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Edit a comment's body. Only the comment's author can edit it.",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "description": "New comment body (markdown, max 20k chars).",
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "commentId": {
+            "description": "Comment to edit.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "commentId",
+          "body"
+        ],
+        "type": "object"
+      },
+      "name": "update_comment",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update fields on an existing project (name, status, owner, parent, goal statement, constraints, budget, success metrics). Only provided fields are changed; pass null to clear a nullable field. Needs the workspace ADMIN role. Pass expectedUpdatedAt (from your last read) for optimistic concurrency — a mismatch returns CONFLICT embedding the current state.",
+      "inputSchema": {
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "properties": {
+                  "maxRuns": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "spendUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Spend and run-count guardrails. Pass null to clear."
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "properties": {
+                  "budget": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "client": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "compliance": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "operational": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "privacy": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "quality": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "repo": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "timeline": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Project constraints by category. Pass null to clear."
+          },
+          "expectedUpdatedAt": {
+            "description": "Optimistic concurrency guard: the entity's updatedAt from your last read. If it changed since, the call fails with CONFLICT and the error embeds the current state.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "goalStatement": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Plain-language desired outcome. Pass null to clear."
+          },
+          "name": {
+            "description": "Project name (max 160 chars).",
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ownerId": {
+            "description": "New owner (must be a workspace member).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projectId": {
+            "description": "ID of the project to update.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "description": "New project status.",
+            "enum": [
+              "PLANNING",
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED",
+              "CANCELLED",
+              "ARCHIVED"
+            ],
+            "type": "string"
+          },
+          "successMetrics": {
+            "anyOf": [
+              {
+                "items": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "quant",
+                        "qual"
+                      ],
+                      "type": "string"
+                    },
+                    "name": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "target": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "unit": {
+                      "maxLength": 40,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "target",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Success metrics. Pass null to clear."
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "name": "update_project",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update fields on an existing task. Only provided fields are changed.",
+      "inputSchema": {
+        "properties": {
+          "description": {
+            "description": "New markdown description.",
+            "maxLength": 50000,
+            "type": "string"
+          },
+          "dueAt": {
+            "anyOf": [
+              {
+                "description": "ISO 8601 datetime (e.g. 2026-12-31T17:00:00Z).",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New due date, or null to clear."
+          },
+          "expectedUpdatedAt": {
+            "description": "Optimistic concurrency guard: the entity's updatedAt from your last read. If it changed since, the call fails with CONFLICT and the error embeds the current entity.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "priority": {
+            "description": "New priority.",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "URGENT"
+            ],
+            "type": "string"
+          },
+          "taskId": {
+            "description": "ID of the task to update.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": {
+            "description": "New title.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "update_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Rename a workspace and/or set its connected-session default repository (admin scope + ADMIN role). `defaultRepo` takes a normalized \"owner/name\" (lowercased at the write boundary; null clears it) — sessions fall back to it only when no project in the workspace carries an explicit REPO link. `slug` and `taskPrefix` are WRITE-ONCE — passing either is refused with INVALID_INPUT. Rename concurrency is VALUE-CAS, not timestamp CAS: pass `expectedName` (the name you last read); `expectedUpdatedAt` is refused (workspaces carry no updatedAt — M19.2). A value-CAS mismatch returns CONFLICT embedding the current state under error.current.",
+      "inputSchema": {
+        "properties": {
+          "defaultRepo": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Workspace-level default repository for connected sessions, as \"owner/name\" (normalized to lowercase at the write boundary; null clears it). The session repo gate falls back to it ONLY when no project in the workspace carries an explicit REPO link."
+          },
+          "expectedName": {
+            "description": "Value-CAS guard: the workspace name you last read. If it changed since, the call fails with CONFLICT.",
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
+            "description": "NOT USED on this plane and REFUSED with INVALID_INPUT. Workspaces and memberships carry no updatedAt (M19.2), so concurrency here is VALUE-CAS: pass expectedName (workspace) / expectedRole (membership) instead.",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "WRITE-ONCE and REFUSED with INVALID_INPUT: a workspace slug is derived from its name at creation and never changes.",
+            "type": "string"
+          },
+          "taskPrefix": {
+            "description": "WRITE-ONCE and REFUSED with INVALID_INPUT: the task-key prefix is derived from the slug at creation and never changes.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "update_workspace",
+      "toolClass": "admin"
+    }
+  ]
+}

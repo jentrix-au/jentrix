@@ -1,0 +1,10 @@
+{
+  "name": "acme-jentrix-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reference Codex extension for Jentrix (examples/acme-codex). The peerDependencies range is the CLI range this plugin was written against; `pnpm validate:examples` checks it.",
+  "license": "MIT",
+  "peerDependencies": {
+    "@jentrix/cli": ">=0.7.0 <1.0.0"
+  }
+}

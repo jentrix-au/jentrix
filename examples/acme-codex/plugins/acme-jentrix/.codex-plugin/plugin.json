@@ -1,0 +1,20 @@
+{
+  "name": "acme-jentrix",
+  "version": "0.1.0",
+  "description": "Acme's workflow for Jentrix: the $acme-standup skill summarises what moved on our boards, over the documented Jentrix CLI. Composes beside the official jentrix plugin; changes nothing about authentication, scopes or the service.",
+  "author": {
+    "name": "Acme"
+  },
+  "license": "MIT",
+  "keywords": ["jentrix", "acme", "standup"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Acme for Jentrix",
+    "shortDescription": "Acme's standup over Jentrix.",
+    "longDescription": "Summarise what moved on Acme's Jentrix boards in the last day, grouped by column, using the Jentrix CLI. A reference extension: rename it before you distribute it.",
+    "developerName": "Acme",
+    "category": "Productivity",
+    "capabilities": ["Interactive"],
+    "defaultPrompt": ["Give me Acme's standup from Jentrix."]
+  }
+}

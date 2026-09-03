@@ -1,0 +1,5 @@
+{
+  "name": "acme-jentrix",
+  "description": "Acme's workflow for Jentrix: /acme-standup summarises what moved on our boards, over the documented Jentrix CLI. Composes beside the official jentrix plugin; changes nothing about authentication, scopes or the service.",
+  "version": "0.1.0"
+}

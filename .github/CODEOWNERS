@@ -1,0 +1,38 @@
+# Code owners of the Jentrix open client. A pull request needs one approving
+# review from an owner of every path it touches (the `main` ruleset enforces
+# it). One owner per package, plus a security owner for anything that runs on
+# a customer's machine before they read it: hooks, the installer and the
+# legacy migration, the provider manifests, the release workflow and its
+# scripts. Today every line names the same maintainer account; the second
+# Jentrix recovery owner (SECURITY.md, PRD §7 "two recovery owners") is added
+# to every line here when appointed.
+
+# Default owner
+*                                             @jentrix-au
+
+# @jentrix/cli (the package at the repository root)
+/src/                                         @jentrix-au
+/test/                                        @jentrix-au
+/package.json                                 @jentrix-au
+
+# @jentrix/plugin-claude
+/plugins/claude/                              @jentrix-au
+
+# @jentrix/plugin-codex
+/plugins/codex/                               @jentrix-au
+
+# Security owner — hooks, installers, manifests, workflows
+/plugins/claude/hooks/                        @jentrix-au
+/plugins/claude/.claude-plugin/               @jentrix-au
+/plugins/codex/plugins/jentrix/hooks/         @jentrix-au
+/plugins/codex/plugins/jentrix/.codex-plugin/ @jentrix-au
+/plugins/codex/.agents/                       @jentrix-au
+/src/commands/plugin.ts                       @jentrix-au
+/src/commands/setup.ts                        @jentrix-au
+/src/session-host/                            @jentrix-au
+/src/session-host-main.ts                     @jentrix-au
+/scripts/                                     @jentrix-au
+/.github/                                     @jentrix-au
+/.npmrc                                       @jentrix-au
+/pnpm-workspace.yaml                          @jentrix-au
+/SECURITY.md                                  @jentrix-au

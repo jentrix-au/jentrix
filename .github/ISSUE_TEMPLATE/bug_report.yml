@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in the CLI, an official plugin, or the hosted contract does not behave as documented.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Security problems go through private reporting, never here** — see SECURITY.md.
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which layer do you think is at fault?
+      description: "`jentrix session doctor` isolates this: it reports versions and install source, who owns each provider's `jentrix` marketplace (Official / User-managed), whether the hooks are pinned and the provider's cached copy matches, and the contract state (tested contract / compatible drift / refused)."
+      options:
+        - Hosted service or contract (tm.jentrix.ai)
+        - "@jentrix/cli"
+        - "Official plugin: Claude Code (@jentrix/plugin-claude)"
+        - "Official plugin: Codex (@jentrix/plugin-codex)"
+        - A custom or third-party plugin (name it below)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and environment
+      description: Paste the output of `jentrix session doctor` (it prints no secrets), or attach the file written by `jentrix session doctor --bundle`. Add the OS and the provider (Claude Code / Codex) version.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. jentrix …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Exact output, with any error envelope (`{"error":{"code":…}}`). Redact tokens — they start with `tm_`, `tmo_`, `tmr_`.
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirm
+      options:
+        - label: The official packages are unmodified on this machine (or I have said above what I changed).
+          required: false
+        - label: No credential or transcript content is included in this report.
+          required: true

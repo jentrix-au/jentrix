@@ -1,0 +1,44 @@
+name: Feature request
+description: A change to the CLI or an official plugin. Organisation-specific workflow behaviour usually belongs in your own plugin — the fork guide explains the boundary.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The scope here is deliberately narrow: the CLI is a thin client over the documented MCP contract, and the official plugins carry provider-facing content only. Something specific to how your team works is a plugin of your own (docs/forks.md, docs/authoring-claude.md, docs/authoring-codex.md) — and if the API boundary is what stops you from building it, that is exactly the request we want to hear.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "@jentrix/cli (commands, diagnostics, installer)"
+        - "Official plugin: Claude Code"
+        - "Official plugin: Codex"
+        - The hosted contract or API (a new tool, field or behaviour)
+        - Documentation, examples, authoring guides
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Is this specific to your organisation's workflow?
+      description: Honest answers help route this — "yes" usually means the right home is a plugin you own, and we can help with the boundary.
+      options:
+        - No, it applies to everyone using the official client
+        - Partly
+        - Yes, it is specific to how my team works
+    validations:
+      required: true

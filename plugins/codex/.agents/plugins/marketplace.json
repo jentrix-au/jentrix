@@ -1,0 +1,20 @@
+{
+  "name": "jentrix",
+  "interface": {
+    "displayName": "Jentrix"
+  },
+  "plugins": [
+    {
+      "name": "jentrix",
+      "source": {
+        "source": "local",
+        "path": "./plugins/jentrix"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

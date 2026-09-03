@@ -1,0 +1,32 @@
+{
+  "name": "@jentrix/plugin-claude",
+  "version": "0.5.5",
+  "description": "The official Jentrix plugin for Claude Code: connected-session commands and trusted lifecycle hooks, materialized by the Jentrix CLI (jentrix plugin install claude).",
+  "keywords": [
+    "jentrix",
+    "claude-code",
+    "plugin",
+    "sessions",
+    "agents"
+  ],
+  "homepage": "https://github.com/jentrix-au/jentrix",
+  "bugs": {
+    "url": "https://github.com/jentrix-au/jentrix/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jentrix-au/jentrix.git",
+    "directory": "plugins/claude"
+  },
+  "license": "MIT",
+  "author": "Jentrix",
+  "files": [
+    ".claude-plugin/",
+    "commands/",
+    "hooks/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
