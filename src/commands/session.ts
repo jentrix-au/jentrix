@@ -29,13 +29,17 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { Command, Option } from "commander";
 
 import { readFolderBinding, requireFolderBinding } from "../binding";
 import { EXIT_CODES, envelopeOfResult, type McpErrorCode } from "../errors";
-import { clientChecks, type ClientProbeDeps } from "./doctor-client";
+import {
+  clientChecks,
+  doctorBundle,
+  type ClientProbeDeps,
+} from "./doctor-client";
 import { withRateLimitRetry } from "../retry";
 import {
   defaultGitRunner,
@@ -3107,6 +3111,8 @@ export async function runSessionEnd(
 export interface SessionDoctorFlags {
   project?: string;
   json?: boolean;
+  /** `--bundle [file]`: write the redacted support bundle (true = default name). */
+  bundle?: string | boolean;
 }
 
 export interface DoctorCheck {
@@ -3520,8 +3526,36 @@ export async function runSessionDoctor(
 
   const failed = checks.filter((check) => check.status === "fail");
   const warned = checks.filter((check) => check.status === "warn");
+  // Open-client R2 S2 (PRD §8 Phase 5): the redacted support bundle. Built
+  // from the checks above and nothing else; the resolved bearer (if any) is
+  // scrubbed as a literal on top of the redactor's patterns. Written with
+  // owner-only permissions; the user previews and shares it by hand.
+  let bundlePath: string | null = null;
+  if (flags.bundle) {
+    const bundle = doctorBundle(checks, {
+      env: deps.env,
+      homedir: deps.client?.homeDir() ?? deps.env.HOME ?? null,
+      literals: target ? [target.token] : [],
+    });
+    bundlePath =
+      typeof flags.bundle === "string"
+        ? resolve(deps.cwd(), flags.bundle)
+        : join(
+            deps.cwd(),
+            `jentrix-doctor-${bundle.generatedAt.slice(0, 19).replace(/[:T]/g, "-")}.json`,
+          );
+    writeFileSync(bundlePath, `${JSON.stringify(bundle, null, 2)}\n`, {
+      mode: 0o600,
+    });
+  }
   if (flags.json) {
-    deps.writeOut(JSON.stringify({ ok: failed.length === 0, checks }));
+    deps.writeOut(
+      JSON.stringify({
+        ok: failed.length === 0,
+        checks,
+        ...(bundlePath ? { bundle: bundlePath } : {}),
+      }),
+    );
     return failed.length === 0 ? 0 : 1;
   }
   deps.writeOut(
@@ -3533,6 +3567,11 @@ export async function runSessionDoctor(
       `  ${ICONS[check.status]} ${check.name.padEnd(12)} ${check.detail}`,
     );
     if (check.fix) deps.writeOut(`      fix: ${check.fix}`);
+  }
+  if (bundlePath) {
+    deps.writeOut(
+      `Support bundle written: ${bundlePath} — redacted (no tokens, no transcript content, no hook bodies, no file contents). Preview it, then attach it to your report by hand; nothing uploads it.`,
+    );
   }
   deps.writeOut(
     failed.length === 0
@@ -4126,6 +4165,10 @@ export function registerSessionCommand(
     .option(
       "--project <id-or-slug>",
       "check an exact project instead of discovery",
+    )
+    .option(
+      "--bundle [file]",
+      "also write a REDACTED support bundle (versions, install source, marketplace ownership, hook-pin target, contract state, provider status, error categories) — never tokens, transcript content, hook bodies or file contents; you preview it and share it by hand",
     )
     .option("--json", "stable JSON output")
     .action(async (flags: SessionDoctorFlags) =>

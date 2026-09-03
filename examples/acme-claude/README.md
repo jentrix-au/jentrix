@@ -12,8 +12,8 @@ way your CI would validate your own plugin.
 # from a clone of this repository, with the official plugin already installed
 claude plugin marketplace add "$(pwd)/examples/acme-claude"
 claude plugin install acme-jentrix@acme
-claude plugin list                     # jentrix@jentrix AND acme-jentrix@acme
-# …in a session: /acme-standup
+claude plugin list                     # acme-jentrix@acme beside the official plugin
+# …in a session: /acme-jentrix:acme-standup (plugin commands are namespaced)
 claude plugin uninstall acme-jentrix@acme
 claude plugin marketplace remove acme
 ```
@@ -24,7 +24,7 @@ Layout:
 | --- | --- |
 | `.claude-plugin/marketplace.json` | The marketplace `acme` with one plugin, `acme-jentrix`, sourced from this directory |
 | `.claude-plugin/plugin.json` | The plugin's name, description and version (the version is what Claude Code caches by — bump it with every change) |
-| `commands/acme-standup.md` | The `/acme-standup` command: a prompt with `allowed-tools: Bash(jentrix:*)` |
+| `commands/acme-standup.md` | The `/acme-jentrix:acme-standup` command: a prompt with `allowed-tools: Bash(jentrix:*)` |
 | `hooks/hooks.json` | A `SessionStart` hook with a timeout, resolving `jentrix` through PATH |
 | `package.json` | The CLI range this plugin was written against (`peerDependencies`) |
 

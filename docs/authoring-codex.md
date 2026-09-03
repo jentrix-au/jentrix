@@ -171,8 +171,12 @@ that has the same name in both plugins — give yours a distinct prefix
 (`acme-…`) and the question does not arise.
 
 Iterate: edit, bump `version` in `plugin.json`, `codex plugin remove
-acme-jentrix && codex plugin add acme-jentrix@acme` (a local marketplace is
-re-read on add; a git one needs `codex plugin marketplace upgrade` first).
+acme-jentrix@acme && codex plugin add acme-jentrix@acme` (a local
+marketplace is re-read on add; a git one needs `codex plugin marketplace
+upgrade` first — which touches git marketplaces only, never a local one).
+Skills are not namespaced: when two plugins carry a skill of the same name,
+the probe on macOS saw the official plugin's skill win and the rule is
+undocumented ([forks.md](./forks.md)) — keep the `acme-` prefix.
 
 ## 5. Declare the CLI range you tested against
 
@@ -214,10 +218,12 @@ Update: bump `version` in `plugin.json`, push or re-tag, then on each machine
 An official update (`npm i -g @jentrix/cli && jentrix plugin install codex`)
 never touches your plugin — it repoints only the `jentrix` marketplace.
 
-Removal:
+Removal — the plugin first (the `<plugin>@<marketplace>` form is required),
+then the marketplace; removing the marketplace first leaves the plugin's
+entry in `~/.codex/config.toml` and its cache directory behind:
 
 ```bash
-codex plugin remove acme-jentrix
+codex plugin remove acme-jentrix@acme
 codex plugin marketplace remove acme
 ```
 

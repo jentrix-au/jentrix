@@ -14,7 +14,7 @@ codex plugin marketplace add "$(pwd)/examples/acme-codex"
 codex plugin add acme-jentrix@acme
 codex plugin list --json               # jentrix@jentrix AND acme-jentrix@acme
 # …in a Codex task: /hooks to trust the hook, then $acme-standup
-codex plugin remove acme-jentrix
+codex plugin remove acme-jentrix@acme    # the plugin first, in the plugin@marketplace form
 codex plugin marketplace remove acme
 ```
 

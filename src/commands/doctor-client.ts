@@ -13,6 +13,7 @@
 import { join } from "node:path";
 
 import { CLI_VERSION } from "../client";
+import { createSessionRedactor } from "../session-host/session-redact";
 import {
   hookFilePath,
   isOwnInstalledPluginPath,
@@ -123,6 +124,97 @@ export function pinnedHookTarget(commands: string[]): string | null {
     return null;
   }
   return null;
+}
+
+/**
+ * The redacted support bundle `jentrix session doctor --bundle` writes
+ * (PRD §8 Phase 5, T6): what a support request needs and NOTHING a support
+ * request must not carry. Built from the doctor's checks only — never from
+ * a transcript, a spool, a hooks file or any other file's contents — so the
+ * exclusions are structural: only the four check fields are copied, `data`
+ * survives for the contract check alone (both sides of the digest
+ * comparison), every string passes the session redactor (token literals and
+ * patterns → ‹redacted›, the home directory → ~), and the error categories
+ * are the UPPER_SNAKE codes the failing checks led with, not their prose.
+ * The user previews the file and shares it by hand; nothing uploads it.
+ */
+export interface DoctorBundle {
+  kind: "jentrix-doctor-bundle";
+  bundleVersion: 1;
+  generatedAt: string;
+  cli: { version: string };
+  platform: { os: string; arch: string; node: string };
+  summary: { ok: number; warn: number; fail: number; skip: number };
+  /** The categories of what went wrong in this run — codes, never messages. */
+  errorCategories: string[];
+  checks: Array<{
+    name: string;
+    status: DoctorCheck["status"];
+    detail: string;
+    fix?: string;
+    data?: Record<string, unknown>;
+  }>;
+}
+
+export function doctorBundle(
+  checks: DoctorCheck[],
+  opts: {
+    env: Record<string, string | undefined>;
+    homedir: string | null;
+    /** Extra literals to scrub — the resolved bearer, when there is one. */
+    literals?: string[];
+    now?: Date;
+    node?: string;
+    os?: string;
+    arch?: string;
+  },
+): DoctorBundle {
+  const redactor = createSessionRedactor({
+    env: opts.env,
+    homedir: opts.homedir,
+    literals: opts.literals ?? [],
+  });
+  const text = (s: string) => redactor.text(s);
+  const summary = { ok: 0, warn: 0, fail: 0, skip: 0 };
+  const errorCategories = new Set<string>();
+  const out: DoctorBundle["checks"] = [];
+  for (const check of checks) {
+    summary[check.status] += 1;
+    if (check.status === "fail" || check.status === "warn") {
+      const code = /^([A-Z][A-Z0-9_]{3,})\b/.exec(check.detail)?.[1];
+      errorCategories.add(code ?? `${check.name.replace(/\s+/g, "_").toUpperCase()}_${check.status.toUpperCase()}`);
+    }
+    const entry: DoctorBundle["checks"][number] = {
+      name: check.name,
+      status: check.status,
+      detail: text(check.detail),
+    };
+    if (check.fix) entry.fix = text(check.fix);
+    // Only the contract check's structured facts travel: adopted vs served
+    // surface, release and digest. Anything else a check attached (a
+    // transcript excerpt, a hook body, a file) is not what support needs.
+    if (check.name === "contract" && check.data) {
+      entry.data = JSON.parse(text(JSON.stringify(check.data))) as Record<
+        string,
+        unknown
+      >;
+    }
+    out.push(entry);
+  }
+  return {
+    kind: "jentrix-doctor-bundle",
+    bundleVersion: 1,
+    generatedAt: (opts.now ?? new Date()).toISOString(),
+    cli: { version: CLI_VERSION },
+    platform: {
+      os: opts.os ?? process.platform,
+      arch: opts.arch ?? process.arch,
+      node: opts.node ?? process.version,
+    },
+    summary,
+    errorCategories: [...errorCategories],
+    checks: out,
+  };
 }
 
 export interface AdoptedContract {

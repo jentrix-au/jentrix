@@ -134,10 +134,12 @@ Two things to know:
   guard with `command -v` and degrade to "no context line" rather than an
   error. (A self-locating hook launcher is a future capability of the
   official client, not something your plugin can borrow today.)
-- **Claude Code asks before it runs a plugin's hooks.** When a plugin with
-  hooks is installed or updated, Claude Code shows the hook commands and asks
-  you to confirm them; Jentrix never pre-trusts them for you. Treat that
-  prompt as the moment to read the commands — your users will.
+- **Installing is trusting.** On Claude Code 2.1.251 a plugin's hooks ran in
+  the first session after `claude plugin install` with no separate prompt,
+  and a hook over its `timeout` was killed ([forks.md](./forks.md)).
+  Jentrix never pre-trusts a plugin for you; say in your README what the
+  hook does, and expect your users to read `hooks/hooks.json` before they
+  install — because that is the moment of consent.
 
 ## 4. Local testing
 
@@ -154,15 +156,18 @@ Install from the directory as a **second** marketplace and try the command:
 ```bash
 claude plugin marketplace add "$(pwd)/acme-claude"
 claude plugin install acme-jentrix@acme
-claude plugin list                    # jentrix@jentrix AND acme-jentrix@acme
-claude                                # then /acme-standup
+claude plugin list                    # acme-jentrix@acme beside the official plugin
+claude                                # then /acme-jentrix:acme-standup
 ```
 
-Both plugins are installed side by side; the official one is untouched and
-`jentrix session doctor` still reports its marketplace as Official.
-[docs/forks.md](./forks.md) records, per OS, what the provider does about a
-command that has the same name in both plugins — give yours a distinct
-prefix (`/acme-…`) and the question does not arise.
+Plugin commands are namespaced by plugin name — `/acme-jentrix:acme-standup`
+always resolves, and the official plugin's commands stay
+`/jentrix:jentrix-status` and friends — so two plugins never collide on a
+command name. Both are installed side by side; the official one is
+untouched and `jentrix session doctor` still reports its marketplace as
+Official. [docs/forks.md](./forks.md) records, per OS, exactly what was
+observed; a distinct prefix (`acme-…`) keeps your commands easy to tell
+apart in the picker regardless.
 
 Iterate: edit, bump `version` in `plugin.json`, `claude plugin marketplace
 update acme`, `claude plugin update acme-jentrix@acme`, restart Claude Code.

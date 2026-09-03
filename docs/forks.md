@@ -42,18 +42,33 @@ fork.
 
 What each provider does when a differently named plugin is installed beside
 the official one. Filled in from an actual run; a cell says "not yet probed"
-until a run on that OS is recorded.
+until a run on that OS is recorded. The macOS column is the run of
+2026-09-03 on Claude Code 2.1.251 and Codex CLI 0.147.0 with the official
+plugins 0.5.5 / 0.2.8 installed by `jentrix plugin install`, using
+`examples/acme-claude` / `examples/acme-codex` plus a throwaway
+`acme-collide` plugin that deliberately carries a command and a skill named
+`jentrix-status` and two SessionStart hooks (one within its timeout, one
+over it).
 
 | Question | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Both plugins listed, no command collision (Claude Code) | not yet probed | not yet probed | not yet probed |
-| Same-named command in both: which wins / how it is shown (Claude Code) | not yet probed | not yet probed | not yet probed |
-| `claude plugin update` touches only its own plugin | not yet probed | not yet probed | not yet probed |
-| Hook trust prompt shown per plugin; timeout honoured (Claude Code) | not yet probed | not yet probed | not yet probed |
-| Both plugins listed, no skill collision (Codex) | not yet probed | not yet probed | not yet probed |
-| Same-named skill in both: which wins / how it is shown (Codex) | not yet probed | not yet probed | not yet probed |
-| `codex plugin marketplace upgrade` touches only its own marketplace | not yet probed | not yet probed | not yet probed |
-| Hooks inactive until `/hooks` trust, per plugin; timeout honoured (Codex) | not yet probed | not yet probed | not yet probed |
+| Both plugins listed, no command collision (Claude Code) | **yes** — `claude plugin list` shows `acme-jentrix@acme` 0.1.0 and `acme-collide@acme-collide` 0.0.1 side by side, each cached under its own marketplace (`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>`); the official plugin's marketplace row, enabled state and pinned hooks were untouched throughout (`jentrix session doctor`: Official, 6 commands pinned, cache matches) | not yet probed | not yet probed |
+| Same-named command in both: which wins / how it is shown (Claude Code) | **namespaced, no winner needed** — plugin commands resolve as `/<plugin>:<command>`: `/jentrix:jentrix-status` and `/acme-collide:jentrix-status` both resolve; the bare `/jentrix-status` is "Unknown command" in `claude -p` with or without the second plugin. Whether the interactive picker offers a bare alias when the name is unique was not observable here (a nested `claude -p` could not authenticate a model turn). Use a distinct prefix anyway | not yet probed | not yet probed |
+| `claude plugin update` touches only its own plugin | **yes** — `claude plugin update acme-jentrix@acme` → "already at the latest version (0.1.0)"; the official plugin unchanged | not yet probed | not yet probed |
+| Hook trust prompt shown per plugin; timeout honoured (Claude Code) | **no prompt; timeout enforced** — after `claude plugin install acme-collide@acme-collide` (no message about hooks) the plugin's SessionStart hooks ran in the next `claude -p` session without any trust prompt; the hook within its `timeout: 5` wrote its marker, the hook that sleeps 6 s under `timeout: 2` never did. On 2.1.251 **the install is the trust decision** — read a plugin's hooks before installing it | not yet probed | not yet probed |
+| Both plugins listed, no skill collision (Codex) | **yes** — `codex plugin list --json` shows `jentrix@jentrix` 0.2.8, `acme-jentrix@acme` 0.1.0 and `acme-collide@acme-collide` 0.0.1, each with its own source path; `codex plugin marketplace list --json` shows the three marketplaces | not yet probed | not yet probed |
+| Same-named skill in both: which wins / how it is shown (Codex) | **the official one won** — `codex exec 'Use the jentrix-status skill now'` used the official skill's text and ran `jentrix session status`; the probe plugin's same-named skill was never used. The tie-break is undocumented (registration order is the likely rule) — use a distinct prefix | not yet probed | not yet probed |
+| `codex plugin marketplace upgrade` touches only its own marketplace | **git marketplaces only** — "All configured Git marketplaces are already up to date"; local (directory) marketplaces, the official one included, are not touched | not yet probed | not yet probed |
+| Hooks inactive until `/hooks` trust, per plugin; timeout honoured (Codex) | **inactive until trusted** — the probe plugin's SessionStart hooks did not run in `codex exec` (no marker); `/hooks` is interactive, so the timeout arm was not reachable non-interactively | not yet probed | not yet probed |
+
+Two removal facts from the same run: Codex removes a plugin only as
+`codex plugin remove <plugin>@<marketplace>` (the bare name errors), and
+`codex plugin marketplace remove` leaves the plugin's
+`[plugins."…"]` entry in `~/.codex/config.toml` and its cache directory
+behind — remove the plugin **before** the marketplace. Claude Code's
+`claude plugin uninstall` and `claude plugin marketplace remove` clean
+up their own entries; the version cache under `~/.claude/plugins/cache`
+stays until deleted.
 
 Windows and Linux are probed in the workspaces named CWP (Claude Code on
 Windows), CLP (Claude Code on Linux) and XLP (Codex on Linux); the macOS

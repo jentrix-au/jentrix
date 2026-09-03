@@ -11,7 +11,11 @@ snapshot with an extraction manifest, no filtered history).
   **`17a8fb8e1027eb10594600ed97063b89b85a21d7`** (`main`, 2026-09-03).
 - **Method:** `git archive HEAD cli` unpacked with `cli/` as the repository
   root — 161 files. No git history was imported; this repository's history
-  starts at its first commit. Phases 1 and 2 of the open-client program
+  starts at its first commit. After the export the private `main` advanced
+  to `f95ced03` (the runner is no longer published from the private
+  repository); its only changes under `cli/` were two comment/prose edits
+  (`RELEASING.md`, `scripts/check-version.mjs`) that this tree's own
+  rewrites of both files already supersede — no code differs. Phases 1 and 2 of the open-client program
   (the served contract, the eight coupling rows, the three-package split,
   the legacy migration, the pack-once release pipeline) were proven inside
   the private repository first, so nothing here reaches outside this tree.

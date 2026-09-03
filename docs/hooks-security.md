@@ -53,13 +53,20 @@ hooks resolve `jentrix` through PATH; see the authoring guides for the
 
 ## The provider's trust step is preserved
 
-Installation never bypasses the provider's own consent:
+Installation never bypasses the provider's own consent — and the two
+providers place that consent differently (observed on macOS, 2026-09-03;
+[forks.md](./forks.md) carries the matrix):
 
-- **Claude Code** shows the plugin's hooks and asks you to trust them when
-  the plugin is installed or updated. `jentrix plugin install claude` runs
-  `claude plugin install jentrix@jentrix` and you answer that prompt.
-- **Codex** keeps hooks inactive until you review and trust them with
-  `/hooks` inside a Codex task.
+- **Claude Code (2.1.251)** runs a plugin's hooks once the plugin is
+  installed and enabled; in our probe no separate prompt was shown at
+  install or at the first session, and a hook exceeding its `timeout` was
+  killed. **The install is the trust decision**: `jentrix plugin install
+  claude` runs `claude plugin install jentrix@jentrix` for the official
+  plugin, and you install a third-party plugin only after reading its
+  `hooks/hooks.json`.
+- **Codex** keeps a plugin's hooks inactive until you review and trust them
+  with `/hooks` inside a Codex task; the probe plugin's hooks did not run
+  until then.
 
 Jentrix never auto-trusts a customer plugin's hooks, never hides a hook
 command, and never treats a hook's output as server authority: the hosted
