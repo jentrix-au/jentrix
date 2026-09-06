@@ -95,7 +95,8 @@ describe("packed tarballs — cold install of the three packages", () => {
         // 4. Run the INSTALLED bin via the symlink npm created from the
         //    package's `bin` entry — the real command path, the shebang, and
         //    the executable bit, not just `node dist/main.js` (SVR C4.3-R1-2).
-        //    Both bins (`jentrix` and the pre-rename `stacks` alias) must land.
+        //    All three bins must land: `jentrix`, the pre-rename `stacks`
+        //    alias, and the `jentrix-session-host` hook forwarder.
         const exe = (name: string) =>
           join(
             proj,
@@ -104,7 +105,7 @@ describe("packed tarballs — cold install of the three packages", () => {
             process.platform === "win32" ? `${name}.cmd` : name,
           );
         const jentrixBin = exe("jentrix");
-        for (const name of ["jentrix", "stacks"]) {
+        for (const name of ["jentrix", "stacks", "jentrix-session-host"]) {
           assert.ok(
             existsSync(exe(name)),
             `installed bin symlink missing at ${exe(name)} — bad \`bin\` entry`,
@@ -136,6 +137,25 @@ describe("packed tarballs — cold install of the three packages", () => {
           help,
           /\btask\b/,
           "generated command tree missing from help",
+        );
+
+        // 4c. The SESSION-HOST bin DISPATCHES through its symlink (JEN-461).
+        //     npm puts the bin's own path in `argv[1]`, not the script's, so
+        //     an entry guard that matched the script FILENAME exited 0 having
+        //     done nothing — silently, which is the worst failure mode for a
+        //     telemetry forwarder, and exactly the shape both plugins' bare
+        //     `jentrix-session-host hook …` commands take. Only the real
+        //     installed symlink proves it; `node dist/session-host-main.js`
+        //     passed throughout the regression.
+        const hostVersion = execFileSync(
+          exe("jentrix-session-host"),
+          ["version"],
+          { encoding: "utf8" },
+        ).trim();
+        assert.match(
+          hostVersion,
+          /"protocolVersion":\s*\d+/,
+          `session-host bin did not dispatch: ${JSON.stringify(hostVersion)}`,
         );
 
         // 5. The plugin PACKAGES landed as dependencies, the CLI package
