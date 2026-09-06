@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish ONE packed tarball to npm under the `next` dist-tag over trusted
+# Publish ONE packed tarball to npm under the `latest` dist-tag over trusted
 # publishing (release.yml, open-client PRD §5.2). Usage:
 #
 #   publish-candidate.sh <tarball> plugin|cli
@@ -31,7 +31,9 @@ kind="${2:?plugin|cli}"
 DRY="--dry-run"; [ "${IS_TAG:-}" = "true" ] && DRY=""
 log="$(mktemp)"
 status=0
-npm publish "$tarball" --access public --tag next --loglevel verbose $DRY 2>&1 | tee "$log" || status=$?
+# `--tag latest` is explicit rather than defaulted, because the tag is the
+# whole point of this line and a silent default is how it drifts back.
+npm publish "$tarball" --access public --tag latest --loglevel verbose $DRY 2>&1 | tee "$log" || status=$?
 
 exchanged() {
   grep -q "oidc Successfully retrieved and set token" "$log" ||

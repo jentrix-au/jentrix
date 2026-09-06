@@ -55,7 +55,8 @@ byte-identical to the private revision.
 private `cli.yml`, no working-directory indirection, the pack smoke always
 on), `.github/workflows/release.yml` (from the private `release-cli.yml`,
 publish and promote under `environment: release`, no runner),
-`.github/scripts/publish-candidate.sh` (carried verbatim but for its
+`.github/scripts/publish-candidate.sh` (since renamed `publish-package.sh`
+when candidate-first was dropped; carried verbatim but for its
 comments), `.gitignore`, `docs/authoring-claude.md`, `docs/authoring-codex.md`,
 `docs/forks.md`, `docs/hooks-security.md`, `docs/compatibility.md`,
 `examples/acme-claude`, `examples/acme-codex`, `scripts/validate-examples.mjs`.

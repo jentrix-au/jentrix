@@ -5,30 +5,63 @@ This repository is one pnpm root holding THREE packages (open-client PRD
 and `@jentrix/plugin-codex` (`plugins/codex`). The CLI depends on both
 plugins with `workspace:*`, which `pnpm pack` rewrites to the exact version.
 They publish to npm via [`.github/workflows/release.yml`](../.github/workflows/release.yml),
-triggered by pushing a **`cli-v*`** tag — PACK-ONCE and CANDIDATE-FIRST:
+triggered by pushing a **`cli-v*`** tag — PACK-ONCE and STRAIGHT TO `latest`:
 
 1. `pnpm -r pack` runs exactly once; any `workspace:` range that survives is a
    red build.
 2. The three tarballs are clean-installed TOGETHER into an empty project and
    exercised (`--version`, `--help`, `plugin install <provider> --dry-run`,
    no `plugins/` inside the CLI package).
-3. The very same files are `npm publish`ed under the **`next`** dist-tag —
+3. The very same files are `npm publish`ed under the **`latest`** dist-tag —
    plugins first, the CLI last (its package.json pins their versions).
    Nothing repacks between validation and upload.
 4. The registry is asked whether all three versions exist (a ten-minute poll —
-   npm publishes asynchronously), and a GitHub Release announces the
-   candidate.
-5. **Promotion to `latest` is a separate, deliberate manual run**: the
-   workflow's `promote=<cli version>` input runs `npm dist-tag add` for the
-   plugin versions that CLI pins, then the CLI. Partial failure leaves the
-   previous `latest` set installable; rollback is `npm i -g @jentrix/cli@<previous>`
-   — nothing is ever unpublished.
+   npm publishes asynchronously), and a GitHub Release announces it.
+
+A tagged release is live for every user the moment step 3 lands. There is no
+soak period and no promotion step.
 
 Publishing is intentionally NOT automatic on merge — it only happens when a
-maintainer cuts a tag. Every run of the `publish` and `promote` jobs — a tag,
-a manual dry run, a promotion — executes under the protected **`release`
-environment** and waits in the Actions UI for its required reviewer before
-a single step runs.
+maintainer cuts a tag. Every run of the `publish` job — a tag or a manual dry
+run — executes under the protected **`release` environment** and waits in the
+Actions UI for its required reviewer before a single step runs.
+
+## Why there is no `next` candidate any more (2026-09-06)
+
+Worth reading before anyone proposes restoring it.
+
+Promotion ran `npm dist-tag add`, which is **not a publish**, so trusted
+publishing's OIDC token could not authorize it — the job needed an account
+credential in `NPM_PROMOTE_TOKEN`. npm is now
+[restricting tokens that bypass 2FA](https://gh.io/npm-gat-bypass2fa-deprecation)
+for direct publishing and account changes, and a dist-tag write counts. The
+promote job failed `EOTP` on **every one of its four attempts** across
+2026-09-03 and 2026-09-06, with a correctly scoped granular token holding
+read+write on all three packages. It never once succeeded, and every `latest`
+this repository ever set was set by hand.
+
+That was invisible for three days because a manual dispatch with `promote`
+empty *skipped* the promote job, so the only green dispatch run had never
+exercised the token at all. A soak period nobody can leave is worse than no
+soak period: it made "released" mean "published where users are not looking",
+and it hid a manual step behind a green check.
+
+Publishing is exempt because OIDC is not a token, which is why the publish half
+has always worked and still does.
+
+**What it costs, plainly.** A bad release is what everyone installs,
+immediately. The clean-install exercise in step 2 is now the only gate between
+a tarball and every user — keep it exhaustive. Rolling back moves the tag
+rather than unpublishing (nothing is ever unpublished), and needs a
+browser-authenticated session because of the same npm restriction:
+
+```bash
+npm login                                        # the web flow IS the 2FA
+npm dist-tag add @jentrix/cli@<previous> latest
+```
+
+`NPM_PROMOTE_TOKEN` on the `release` environment is now unused and should be
+deleted from the repository and revoked on npmjs.com.
 
 ## One-time setup
 
@@ -50,8 +83,7 @@ a single step runs.
    from the private application repository before extraction).
 
    **Verify it without cutting a release**: run the workflow manually
-   (`gh workflow run release.yml --ref main`, or the Actions UI, leaving
-   `promote` empty), approve the `release` deployment when it asks. A manual
+   (`gh workflow run release.yml --ref main`, or the Actions UI), approve the `release` deployment when it asks. A manual
    run is always a dry run and publishes nothing. For a package WITH a
    publisher the step goes green: the dry run reaches npm's `cannot publish
    over the previously published versions` check — which runs after auth, so
@@ -81,14 +113,9 @@ a single step runs.
    enabled** — not for the workflow, which never touches the account, but
    because editing trusted-publisher configuration is one of the operations
    npm gates on 2FA.
-3. **`NPM_PROMOTE_TOKEN` (for the promote job).** `npm dist-tag add` is not a
-   publish, so OIDC cannot authorize it. Create a granular access token on
-   npmjs.com scoped to the three client packages with read+write, and add it
-   as a secret **on the `release` environment** — the one npm credential this
-   repository holds, read only by the `promote` job. Without it, promote by
-   hand: `npm dist-tag add @jentrix/plugin-claude@<v> latest`, the same for
-   `plugin-codex`, then `@jentrix/cli@<v>` (a passkey account approves each
-   in the browser; an authenticator account types the code at `Enter OTP:`).
+3. **`NPM_PROMOTE_TOKEN` is retired.** It backed the promote job, which no
+   longer exists (see "Why there is no `next` candidate any more"). Delete the
+   environment secret and revoke the token on npmjs.com; nothing reads it.
 4. **`repository.url` must match.** All three `package.json` files name
    `git+https://github.com/jentrix-au/jentrix.git` (the plugins with
    `repository.directory`). Trusted publishing with provenance FAILS
@@ -148,13 +175,13 @@ the tag (`git push origin :refs/tags/cli-v0.7.1`), merge, then tag the new head.
    verifies the tag pins the CLI and the plugins agree with themselves,
    typechecks and tests, packs once, clean-installs the exact tarballs,
    installs an npm that speaks OIDC (>= 11.5.1; Node 22 bundles 10.9.x),
-   publishes the three candidates to `next` over trusted publishing (plugins
+   publishes the three packages to `latest` over trusted publishing (plugins
    first, CLI last — no credential anywhere), **asks the registry whether all
    three versions actually exist**, and creates the GitHub Release. That
    registry step is not belt-and-braces: the publish steps exit 0 on a dry run
    by design, so their exit code cannot distinguish "released" from "released
    nothing". `DRY` is derived in the shell from an `IS_TAG` env var
-   (`.github/scripts/publish-candidate.sh`), never by an Actions ternary
+   (`.github/scripts/publish-package.sh`), never by an Actions ternary
    (`a && b || c` yields an operand, not a boolean — a release once published
    nothing while every step reported success).
 
@@ -168,10 +195,12 @@ the tag (`git push origin :refs/tags/cli-v0.7.1`), merge, then tag the new head.
    red check). Never republish or re-run on that red: a hand publish followed
    by a tag of the same version hits `E409 Cannot publish over previously
    staged version` — one publish path per version, never both.
-6. Try the candidate: `npm i -g @jentrix/cli@next && jentrix plugin install`.
-   Then promote: `gh workflow run release.yml --ref main -f promote=<version>`
-   (plugins first, CLI last; needs `NPM_PROMOTE_TOKEN` on the environment, and
-   the reviewer's approval). Verify with `npm view @jentrix/cli dist-tags`.
+6. Verify what users now get — the release is already live:
+   `npm view @jentrix/cli dist-tags` (expect `latest` at the new version), then
+   `npm i -g @jentrix/cli && jentrix --version && jentrix plugin install`.
+   If it is broken, roll `latest` back to the previous version with
+   `npm login && npm dist-tag add @jentrix/cli@<previous> latest` — see the
+   section above for why that step is manual.
 
 Install afterward: `npm i -g @jentrix/cli`. Brew is not an install channel
 (see above), which is why the install docs omit it.
@@ -186,7 +215,7 @@ Code and Codex copy a directory marketplace into their by-version cache, so an
 edit under an unchanged `plugin.json` version is a no-op for every installed
 operator: **bump the plugin's version (manifest + package.json) with the
 change** and let the release deliver it. `jentrix plugin install` re-resolves
-the package after `npm i -g @jentrix/cli@<version>` (or `@next`), pins the
+the package after `npm i -g @jentrix/cli@<version>`, pins the
 hooks to absolute paths, and migrates an older registration two-phase: it
 repoints only a row that is provably an installed copy of ours (npm global,
 Homebrew, pnpm global, npx root), proves activation from the provider's own
