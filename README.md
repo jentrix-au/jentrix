@@ -81,7 +81,7 @@ How versions, digests, drift and the 180/90-day support window work:
 - [Hooks and the trust model](./docs/hooks-security.md) — what the hooks do, the absolute-path pin, the provider's trust step
 - [Writing a Claude Code plugin for Jentrix](./docs/authoring-claude.md) · [Writing a Codex plugin for Jentrix](./docs/authoring-codex.md) — from a minimal `acme-jentrix` to distribution
 - [Forks and composition](./docs/forks.md) — compose beside the official plugin, or fork it under your own name; the coexistence matrix; the upstream comparison loop
-- [Releasing](./docs/releasing.md) — the pack-once, candidate-first ritual (maintainers)
+- [Releasing](./docs/releasing.md) — the pack-once, publish-to-`latest` ritual (maintainers)
 - [Runbooks](./docs/runbooks/) — contract digest mismatch, publish failure, compromised release, migration failure
 - [`examples/acme-claude`](./examples/acme-claude) · [`examples/acme-codex`](./examples/acme-codex) — the two reference extensions; `pnpm validate:examples` checks them the way your CI would check yours
 - In-app: [install](https://tm.jentrix.ai/docs/cli-install), [connected sessions](https://tm.jentrix.ai/docs/cli), [the product tool catalog](https://tm.jentrix.ai/docs/mcp-tools)
