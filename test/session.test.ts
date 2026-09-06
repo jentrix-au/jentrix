@@ -2217,3 +2217,147 @@ test("hook context keeps the AGE-957 transcript-exists preference among survivor
     "phantom_ses",
   );
 });
+
+// ---------------------------------------------------------------------------
+// JEN-457 — `session connect` must launch its host under the mode the SERVER
+// resolves for this operator. Before this the watch plan carried no
+// captureTrace at all, so the host fell back to its own `true` and every
+// connected session recorded TRACE capture on, ahead of the account default;
+// the first align then SENT that observation ("(live host)") and the D3 chain
+// was never reached. Reproduced on prod 2026-09-06 on three sessions.
+// ---------------------------------------------------------------------------
+
+/** Run connect against an attach result and return the host plan it wrote. */
+async function connectPlan(
+  attachResult: Record<string, unknown>,
+  flags: Record<string, unknown> = {},
+): Promise<{
+  plan: Record<string, unknown>;
+  attachArgs: Record<string, unknown>;
+  out: string;
+}> {
+  let attachArgs: Record<string, unknown> = {};
+  const caller = fakeCaller({
+    attach_agent_session: (args) => {
+      attachArgs = args;
+      return attachResult;
+    },
+    get_agent_session: () => ({ id: "ses_cap", status: "ACTIVE" }),
+  });
+  const spool = mkdtempSync(join(tmpdir(), "stacks-jen457-"));
+  const root = boundCheckout();
+  const plans: string[] = [];
+  const d = deps(caller, {
+    spoolRoot: spool,
+    cwd: () => root,
+    git: gitAt(root),
+    spawnSessionHostDetached: (_runner, planPath) => {
+      plans.push(readFileSync(planPath, "utf8"));
+      return 7101;
+    },
+  });
+  const code = await runSessionConnect(
+    {
+      provider: "claude",
+      providerSession: "cc-cap",
+      transcriptPath: "/t/cap.jsonl",
+      ...flags,
+    },
+    d,
+  );
+  assert.equal(code, 0);
+  return {
+    plan: JSON.parse(plans[0]!) as Record<string, unknown>,
+    attachArgs,
+    out: d.out.join("\n"),
+  };
+}
+
+const ATTACHED = {
+  id: "ses_cap",
+  workspaceId: "ws_1",
+  projectId: null,
+  status: "ACTIVE",
+  converged: false,
+};
+
+test("connect: a preference-less account starts the host capture OFF, from (built-in)", async () => {
+  const { plan, attachArgs, out } = await connectPlan({
+    ...ATTACHED,
+    capture: "off",
+    skeleton: "on",
+    captureSources: { capture: "(built-in)", skeleton: "(built-in)" },
+  });
+  assert.equal(plan.captureTrace, false, "the shipped default must hold");
+  assert.equal(plan.collectSkeleton, true);
+  // Tri-state: no flag means OMIT, which is the only way the server ever
+  // reaches the account default.
+  assert.equal("capture" in attachArgs, false);
+  assert.equal("skeleton" in attachArgs, false);
+  assert.match(out, /TRACE capture is OFF \(built-in\)/);
+  // JEN-457: the provenance rides the plan, so the first align can disclose
+  // "(built-in)" rather than the generic "(live host)".
+  assert.equal(plan.captureSource, "(built-in)");
+});
+
+test("connect: an account default of ON starts the host capturing, from (your default)", async () => {
+  const { plan, out } = await connectPlan({
+    ...ATTACHED,
+    capture: "on",
+    skeleton: "on",
+    captureSources: { capture: "(your default)", skeleton: "(your default)" },
+  });
+  assert.equal(plan.captureTrace, true);
+  assert.equal(plan.captureSource, "(your default)");
+  assert.match(out, /TRACE capture ON \(your default\)/);
+});
+
+test("connect --capture sends the flag rung and starts capturing", async () => {
+  const { plan, attachArgs } = await connectPlan(
+    {
+      ...ATTACHED,
+      capture: "on",
+      skeleton: "on",
+      captureSources: { capture: "(flag)", skeleton: "(built-in)" },
+    },
+    { capture: true },
+  );
+  assert.equal(attachArgs.capture, "on");
+  assert.equal(plan.captureTrace, true);
+});
+
+test("connect --no-capture sends off even when the account default is on", async () => {
+  const { plan, attachArgs } = await connectPlan(
+    {
+      ...ATTACHED,
+      capture: "off",
+      skeleton: "on",
+      captureSources: { capture: "(flag)", skeleton: "(built-in)" },
+    },
+    { capture: false },
+  );
+  assert.equal(attachArgs.capture, "off");
+  assert.equal(plan.captureTrace, false);
+});
+
+test("connect --no-skeleton is independent of capture", async () => {
+  const { plan, attachArgs } = await connectPlan(
+    {
+      ...ATTACHED,
+      capture: "off",
+      skeleton: "off",
+      captureSources: { capture: "(built-in)", skeleton: "(flag)" },
+    },
+    { skeleton: false },
+  );
+  assert.equal(attachArgs.skeleton, "off");
+  assert.equal(plan.collectSkeleton, false);
+});
+
+test("connect against an OLDER server (no resolved posture) falls back to the documented default, not TRACE-on", async () => {
+  // The regression guard: the absent-field path is exactly what used to yield
+  // captureTrace true.
+  const { plan } = await connectPlan(ATTACHED);
+  assert.equal(plan.captureTrace, false);
+  assert.equal(plan.collectSkeleton, true);
+});

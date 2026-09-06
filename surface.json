@@ -1,6 +1,6 @@
 {
   "_generated": "jentrix adopt-contract — do not edit",
-  "generatedForToolCount": 64,
+  "generatedForToolCount": 67,
   "tools": [
     {
       "annotations": {
@@ -282,6 +282,14 @@
       "description": "Bind a TRUSTED current provider session/thread id (from provider lifecycle hooks or app-server context — never model-authored text) to a Jentrix session. With sessionId: late-binds a CLI-started session's provider thread (CAS). Without: attach-creates an ACTIVE session — v2 shape scopes by workspaceId (no Project), legacy shape by projectId for the compatibility window; repeating converges on the existing session by operator + workspace + repo (row creation runs the plan cap; convergence does not). A competing active binding fails SESSION_ALREADY_BOUND. Requires idempotencyKey.",
       "inputSchema": {
         "properties": {
+          "capture": {
+            "description": "TRACE capture mode to start this session's host under. OMIT to let the server resolve it: this session's previous value, then the operator's account default (Account → Capture), then the built-in off.",
+            "enum": [
+              "off",
+              "on"
+            ],
+            "type": "string"
+          },
           "connection": {
             "oneOf": [
               {
@@ -364,6 +372,14 @@
           "sessionId": {
             "description": "Existing STARTING/ACTIVE session to bind the provider thread to (CLI-start late binding). Omit to attach-create in one step.",
             "minLength": 1,
+            "type": "string"
+          },
+          "skeleton": {
+            "description": "Activity-skeleton mode to start this session's host under, independent of capture. OMIT to let the server resolve it: previous value, then account default, then the built-in on.",
+            "enum": [
+              "on",
+              "off"
+            ],
             "type": "string"
           },
           "startBranch": {
@@ -933,6 +949,9 @@
                 "type": "null"
               }
             ]
+          },
+          "captureOff": {
+            "type": "boolean"
           },
           "commitCount": {
             "anyOf": [
@@ -2020,6 +2039,75 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Read the same authorized review dossier shown in the UI: submitted candidate, criteria, ownership, claimed checks, evidence and scoped history. Compact JSON is at most 32 KiB. Follow each collection's nextOffset independently (20 evidence, 10 history, 10 comments maximum). No bodies or signed URLs; open stable authorized artifact routes separately.",
+      "inputSchema": {
+        "properties": {
+          "commentsOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "evidenceOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyChecksOffset": {
+            "default": 0,
+            "maximum": 24,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyDetailsOffset": {
+            "default": 0,
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyEvidenceOffset": {
+            "default": 0,
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "membersOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receiptId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "get_review_dossier",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Fetch full details of a task including description, labels, assignees, subtasks, links, and recent activity. Accepts taskId, or workspaceId + number (the numeric part of a task key like STK-42). Pass response_format: 'concise' for scalars + counts only.",
       "inputSchema": {
         "properties": {
@@ -2345,7 +2433,10 @@
               "AGENT_SESSION_ALIGNED",
               "SESSION_BUDGET_EXCEEDED",
               "REVIEW_ACCEPTED",
-              "REVIEW_RETURNED"
+              "REVIEW_RETURNED",
+              "REVIEW_REQUEST_UPDATED",
+              "REVIEW_REQUEST_SUBMITTED",
+              "REVIEW_LEGACY_CLOSED"
             ],
             "type": "string"
           }
@@ -2719,6 +2810,111 @@
         "type": "object"
       },
       "name": "list_projects",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List column-derived pending review requests. Filters apply to the whole workspace, pages contain at most 50 tasks, and totals distinguish matching from all pending. Null request time means unknown, never inferred age. Agents recommend only.",
+      "inputSchema": {
+        "properties": {
+          "board": {
+            "items": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "kind": {
+            "items": {
+              "enum": [
+                "code",
+                "outcome",
+                "research",
+                "legacy",
+                "untriaged"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "priority": {
+            "items": {
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH",
+                "URGENT"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
+          "q": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "requestTime": {
+            "items": {
+              "const": "unknown",
+              "type": "string"
+            },
+            "maxItems": 1,
+            "type": "array"
+          },
+          "response": {
+            "items": {
+              "enum": [
+                "overdue",
+                "notset"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "type": "array"
+          },
+          "reviewer": {
+            "items": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "sort": {
+            "default": "priority",
+            "enum": [
+              "priority",
+              "updated",
+              "requested"
+            ],
+            "type": "string"
+          },
+          "workspaceId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_review_queue",
       "toolClass": "read"
     },
     {
@@ -3898,6 +4094,504 @@
         "type": "object"
       },
       "name": "update_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create or update review request metadata. Existing rows require expectedUpdatedAt; creation supports idempotencyKey. Explicit submit validates ownership, criteria, candidate and response target. No human verdict, legacy closure or code downgrade is available to agents.",
+      "inputSchema": {
+        "properties": {
+          "authorId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backupReviewerId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "context": {
+            "additionalProperties": false,
+            "properties": {
+              "candidate": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "base": {
+                            "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                            "type": "string"
+                          },
+                          "head": {
+                            "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                            "type": "string"
+                          },
+                          "repository": {
+                            "format": "uri",
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "git",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "repository",
+                          "base",
+                          "head"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "artifactId": {
+                            "maxLength": 160,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "sha256": {
+                            "pattern": "^[a-f0-9]{64}$",
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "patch",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "artifactId",
+                          "sha256"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "artifactIds": {
+                            "items": {
+                              "maxLength": 160,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxItems": 60,
+                            "type": "array"
+                          },
+                          "limitations": {
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "reference": {
+                            "format": "uri",
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "deliverable",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "artifactIds",
+                          "limitations"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidate": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "command": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "evidenceIds": {
+                      "items": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 10,
+                      "type": "array"
+                    },
+                    "finishedAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "source": {
+                      "enum": [
+                        "cli_attested",
+                        "human_reported",
+                        "author_reported"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "pass",
+                        "fail",
+                        "unknown"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "command",
+                    "evidenceIds",
+                    "candidate",
+                    "finishedAt",
+                    "source",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "criteria": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkIds": {
+                      "items": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 24,
+                      "type": "array"
+                    },
+                    "evidenceIds": {
+                      "items": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 60,
+                      "type": "array"
+                    },
+                    "id": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "text": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text",
+                    "evidenceIds",
+                    "checkIds"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "decisionRequested": {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "artifactId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 60,
+                "type": "array"
+              },
+              "findings": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "criterionId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "id": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "impact": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "location": {
+                      "maxLength": 300,
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "recordType": {
+                      "enum": [
+                        "artifact",
+                        "comment"
+                      ],
+                      "type": "string"
+                    },
+                    "remedy": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "severity": {
+                      "enum": [
+                        "blocker",
+                        "suggestion"
+                      ],
+                      "type": "string"
+                    },
+                    "verification": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "severity",
+                    "criterionId",
+                    "recordType",
+                    "recordId",
+                    "location",
+                    "impact",
+                    "remedy",
+                    "verification"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "gaps": {
+                "items": {
+                  "maxLength": 600,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 12,
+                "type": "array"
+              },
+              "responses": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "findingId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "recordType": {
+                      "enum": [
+                        "artifact",
+                        "comment"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "addressed",
+                        "disputed",
+                        "pending"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "findingId",
+                    "recordType",
+                    "recordId",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "schemaVersion": {
+                "const": 1,
+                "type": "number"
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "criteria",
+              "candidate",
+              "evidence",
+              "checks",
+              "gaps",
+              "decisionRequested",
+              "findings",
+              "responses"
+            ],
+            "type": "object"
+          },
+          "decisionOwnerId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "downgradeReason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotencyKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "outcome",
+                  "research",
+                  "legacy"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "responseDueAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewerId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submit": {
+            "default": false,
+            "type": "boolean"
+          },
+          "taskId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "update_task_review",
       "toolClass": "write"
     },
     {

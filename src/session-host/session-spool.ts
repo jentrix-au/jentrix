@@ -49,6 +49,16 @@ export interface SessionHostMarker {
    */
   captureTrace?: boolean;
   /**
+   * JEN-457: WHERE `captureTrace` came from — the label the resolving call
+   * returned ("(flag)", "(this session)", "(your default)", "(built-in)").
+   * A live host always SENDS its observed capture state on align, because the
+   * snapshot is a consent record of collection actually happening; without
+   * this the align disclosure could only say "(live host)", which names the
+   * messenger rather than the operator's own reason. Absent on hosts started
+   * by an older CLI, and the disclosure falls back to "(live host)".
+   */
+  captureSource?: string;
+  /**
    * AGE-957: whether the host has EVER successfully stat'ed its transcript
    * path. False after the grace window means the host is observing nothing
    * (no events, no usage receipts) — `session status` surfaces it instead of
@@ -80,7 +90,12 @@ export function writeHostMarker(
   sessionDir: string,
   marker: Pick<
     SessionHostMarker,
-    "pid" | "provider" | "mode" | "captureTrace" | "transcriptPath"
+    | "pid"
+    | "provider"
+    | "mode"
+    | "captureTrace"
+    | "captureSource"
+    | "transcriptPath"
   >,
 ): void {
   mkdirSync(sessionDir, { recursive: true, mode: 0o700 });

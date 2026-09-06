@@ -14,6 +14,8 @@
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { withRateLimitRetry } from "../retry.js";
+
 import type { SessionEvent, SessionEventKind } from "./session-events.js";
 import { serializeSessionEvent } from "./session-events.js";
 import type { SessionRedactor } from "./session-redact.js";
@@ -75,9 +77,106 @@ export interface SessionBridgeDeps {
    */
   collectSkeleton?: boolean;
   log?: (line: string) => void;
+  /**
+   * JEN-456 — the host's shared RATE_LIMITED wait budget. Absent = no backoff
+   * (every existing test constructs a bridge without one and keeps its exact
+   * behaviour); `session-host.ts` creates one and hands the SAME object to
+   * `sessionCallTool`, so the REST and MCP paths cannot each spend 60 seconds.
+   */
+  rateLimitBudget?: RateLimitBudget;
 }
 
 export const HEARTBEAT_MIN_INTERVAL_MS = 30_000;
+
+/**
+ * JEN-456 — the total time this host may spend WAITING OUT rate limits, across
+ * every request it makes for the rest of its life.
+ *
+ * One budget for the whole host, not one per call, and this is the load-bearing
+ * part: `jentrix session end` waits 90 s for the host to finish
+ * (`waitForHostEnd`), and a close makes five requests (part flush, forced beat,
+ * final response, `get_agent_session`, `complete_agent_session`). Five
+ * independent 60-second backoffs would blow that window and the operator would
+ * get the server-side fallback anyway — which is the failure being fixed. 60 s
+ * shared leaves 30 s of headroom for the calls themselves.
+ */
+export const HOST_RATE_LIMIT_BUDGET_MS = 60_000;
+
+/**
+ * The remaining rate-limit wait, shared by every request path of one host — the
+ * bridge's REST calls and `sessionCallTool`'s MCP calls alike. A wait that would
+ * not fit is never taken (`withRateLimitRetry` returns the refusal instead), so
+ * the host degrades to today's behaviour rather than hanging past its window.
+ */
+export interface RateLimitBudget {
+  /** Seconds of waiting still allowed. Zero disables every retry. */
+  remainingSeconds(): number;
+  /** Record milliseconds actually spent waiting. */
+  spend(ms: number): void;
+}
+
+export function createRateLimitBudget(
+  totalMs: number = HOST_RATE_LIMIT_BUDGET_MS,
+): RateLimitBudget {
+  let remainingMs = Math.max(0, totalMs);
+  return {
+    remainingSeconds: () => remainingMs / 1000,
+    spend: (ms) => {
+      remainingMs = Math.max(0, remainingMs - Math.max(0, ms));
+    },
+  };
+}
+
+/**
+ * Run `fn` under the ONE retry policy (`cli/src/retry.ts`), charging whatever it
+ * waits to the host's shared budget. `retryAfterOf` is what makes the same
+ * policy cover an HTTP 429 as well as a tool-call envelope.
+ */
+export async function withHostRateLimitRetry<T>(
+  budget: RateLimitBudget | undefined,
+  fn: () => Promise<T>,
+  retryAfterOf?: (result: T) => number | null,
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => setTimeout(resolve, ms)),
+  now: () => number = () => Date.now(),
+): Promise<T> {
+  if (!budget) return fn();
+  const before = now();
+  try {
+    return await withRateLimitRetry(fn, {
+      // Bounded by the BUDGET, not by a count: two 30-second waits and one
+      // 60-second wait are the same spend, and the spend is what matters.
+      maxRetries: 4,
+      maxWaitSeconds: budget.remainingSeconds(),
+      sleep,
+      now,
+      ...(retryAfterOf ? { retryAfterOf } : {}),
+    });
+  } finally {
+    budget.spend(now() - before);
+  }
+}
+
+/**
+ * The `Retry-After` a rate-limited REST response asks for, in seconds, or null
+ * when the response is not a 429. A 429 without a usable header still retries
+ * once after a conservative default — the server always sends the header
+ * (`sessionRateLimitResponse`), and an old server that does not is exactly the
+ * case where guessing beats giving up on the close.
+ */
+export function retryAfterOfResponse(response: {
+  status: number;
+  headers: { get(name: string): string | null };
+}): number | null {
+  if (response.status !== 429) return null;
+  // `Number(null)` and `Number("")` are BOTH 0, so an ABSENT header would read
+  // as "retry immediately" — a hot loop against a server already refusing.
+  // Test the raw string first; only a present, parseable value is honoured.
+  const raw = response.headers.get("retry-after");
+  if (raw === null || raw.trim() === "") return 5;
+  const header = Number(raw);
+  return Number.isFinite(header) && header >= 0 ? header : 5;
+}
 
 /**
  * JEN-294: how many of a previous host's missingRanges a restart carries
@@ -178,6 +277,26 @@ export class SessionBridge {
 
   private fetch(): typeof fetch {
     return this.deps.fetchImpl ?? fetch;
+  }
+
+  /**
+   * JEN-456 — every REST request the host makes, under the shared bounded
+   * backoff. A 429 used to be a silent liveness loss (heartbeat), a lost
+   * closing output (final response) or a retained spool (parts); now it waits
+   * the server's own `Retry-After` and tries again, inside the 90 s the CLI's
+   * `session end` allows. Said ONCE per distinct status, never every 30 s.
+   */
+  private async retrying(fn: () => Promise<Response>): Promise<Response> {
+    return withHostRateLimitRetry(this.deps.rateLimitBudget, fn, (response) => {
+      const retryAfter = retryAfterOfResponse(response);
+      if (retryAfter !== null && !this.warnedHeartbeatStatuses.has(429)) {
+        this.warnedHeartbeatStatuses.add(429);
+        this.deps.log?.(
+          `capture: rate limited (HTTP 429) — waiting ${retryAfter}s and retrying; the host's total wait is capped at ${HOST_RATE_LIMIT_BUDGET_MS / 1000}s`,
+        );
+      }
+      return retryAfter;
+    });
   }
 
   /** Begin (or resume) continuous observation — opens an observed range. */
@@ -516,35 +635,41 @@ export class SessionBridge {
     this.lastHeartbeatAt = now;
     const bearer = this.bearerOf();
     try {
-      const response = await this.fetch()(
-        new URL("/api/agent-sessions/heartbeat", this.deps.jentrixBaseUrl),
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${bearer}`,
-            "content-type": "application/json",
+      const response = await this.retrying(() =>
+        this.fetch()(
+          new URL("/api/agent-sessions/heartbeat", this.deps.jentrixBaseUrl),
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${bearer}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              sessionId: this.deps.sessionId,
+              // control-room AC2.1: the heartbeat is the host's "what I
+              // observed" channel. No new timer, no new route, no new tool —
+              // and host-attested by construction, since the route writes only
+              // the authenticated operator's own open session.
+              ...(this.observedModelId
+                ? { modelId: this.observedModelId }
+                : {}),
+              // control-room AC4.1: the LIVE usage receipt on the same beat.
+              // Sent only once a receipt has actually been observed — an empty
+              // rollup would overwrite the session's totals with nulls and
+              // report UNAVAILABLE for a session that had already reported.
+              ...(this.receipts.length > 0
+                ? { usage: this.usageRollup() }
+                : {}),
+              // Evidence floor (PRD §4/D2): the bounded activity skeleton rides
+              // the same beat (tolerant server parse — an old server strips the
+              // unknown key). Sent only once something was observed: null column
+              // means "never observed", never an empty object.
+              ...(this.skeleton?.observedAnything
+                ? { activitySkeleton: this.skeleton.snapshot() }
+                : {}),
+            }),
           },
-          body: JSON.stringify({
-            sessionId: this.deps.sessionId,
-            // control-room AC2.1: the heartbeat is the host's "what I
-            // observed" channel. No new timer, no new route, no new tool —
-            // and host-attested by construction, since the route writes only
-            // the authenticated operator's own open session.
-            ...(this.observedModelId ? { modelId: this.observedModelId } : {}),
-            // control-room AC4.1: the LIVE usage receipt on the same beat.
-            // Sent only once a receipt has actually been observed — an empty
-            // rollup would overwrite the session's totals with nulls and
-            // report UNAVAILABLE for a session that had already reported.
-            ...(this.receipts.length > 0 ? { usage: this.usageRollup() } : {}),
-            // Evidence floor (PRD §4/D2): the bounded activity skeleton rides
-            // the same beat (tolerant server parse — an old server strips the
-            // unknown key). Sent only once something was observed: null column
-            // means "never observed", never an empty object.
-            ...(this.skeleton?.observedAnything
-              ? { activitySkeleton: this.skeleton.snapshot() }
-              : {}),
-          }),
-        },
+        ),
       );
       if (response.status === 401) {
         // A rotated-away bearer must not silently kill liveness until the
@@ -590,22 +715,24 @@ export class SessionBridge {
       if (this.terminalParts.has(part.part)) continue;
       const bearer = this.bearerOf();
       try {
-        const response = await this.fetch()(
-          new URL(
-            `/api/agent-sessions/${this.deps.sessionId}/parts`,
-            this.deps.jentrixBaseUrl,
-          ),
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${bearer}`,
-              "content-type": "application/json",
+        const response = await this.retrying(() =>
+          this.fetch()(
+            new URL(
+              `/api/agent-sessions/${this.deps.sessionId}/parts`,
+              this.deps.jentrixBaseUrl,
+            ),
+            {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${bearer}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                part: part.part,
+                body: this.deps.spool.readPart(part.part),
+              }),
             },
-            body: JSON.stringify({
-              part: part.part,
-              body: this.deps.spool.readPart(part.part),
-            }),
-          },
+          ),
         );
         if (response.ok) {
           const ack = (await response.json()) as { checksum?: string };
@@ -671,26 +798,28 @@ export class SessionBridge {
     const body = this.finalResponseBody(last);
     const bearer = this.bearerOf();
     try {
-      const response = await this.fetch()(
-        new URL(
-          `/api/agent-sessions/${this.deps.sessionId}/artifacts`,
-          this.deps.jentrixBaseUrl,
-        ),
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${bearer}`,
-            "content-type": "application/json",
+      const response = await this.retrying(() =>
+        this.fetch()(
+          new URL(
+            `/api/agent-sessions/${this.deps.sessionId}/artifacts`,
+            this.deps.jentrixBaseUrl,
+          ),
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${bearer}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              // `report` → REPORT → the Execution layer, which is the session's
+              // own layer. No new push kind and no new ArtifactType: the seven
+              // kinds are frozen vocabulary and this is a report the agent wrote.
+              kind: "report",
+              title: `Final response — session ${this.deps.sessionId.slice(-8)}`,
+              body,
+            }),
           },
-          body: JSON.stringify({
-            // `report` → REPORT → the Execution layer, which is the session's
-            // own layer. No new push kind and no new ArtifactType: the seven
-            // kinds are frozen vocabulary and this is a report the agent wrote.
-            kind: "report",
-            title: `Final response — session ${this.deps.sessionId.slice(-8)}`,
-            body,
-          }),
-        },
+        ),
       );
       if (response.ok) {
         const ack = (await response.json().catch(() => null)) as {
@@ -780,6 +909,37 @@ export class SessionBridge {
   }
 
   /**
+   * JEN-457 — call `complete_agent_session`, and if THIS server does not know
+   * `captureOff`, drop it and close anyway.
+   *
+   * The server rejects unknown parameters outright (`INVALID_INPUT: Unknown
+   * parameter "captureOff" for this tool`), and the CLI is released separately
+   * from the app — so a client carrying the field would fail every capture-off
+   * close against a deployment that has not caught up. Losing the close is far
+   * worse than losing the declaration: without it the server falls back to the
+   * alignment snapshot, which is exactly the behaviour that server already has.
+   *
+   * Deliberately NOT a generic strip-and-retry: only this one field, only on
+   * the error that names it. Anything else is a real refusal and propagates.
+   */
+  private async completeWithFallback(
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    try {
+      return await this.deps.callTool("complete_agent_session", args);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!("captureOff" in args) || !message.includes("captureOff"))
+        throw error;
+      const { captureOff: _dropped, ...rest } = args;
+      this.deps.log?.(
+        "capture: this server does not accept `captureOff` — closing without it (the capture-off verdict falls back to the alignment snapshot)",
+      );
+      return this.deps.callTool("complete_agent_session", rest);
+    }
+  }
+
+  /**
    * Close the session: final flush, server-verified manifest from the ACKED
    * checksums, rollup, then `complete_agent_session` under CAS. Returns the
    * server's verdict plus the local pending count — the CLI exits non-zero
@@ -844,13 +1004,16 @@ export class SessionBridge {
           : this.unrecognizedEvents > 0
             ? `${this.unrecognizedEvents} provider event(s) had shapes this adapter does not observe`
             : null);
-    const result = (await this.deps.callTool("complete_agent_session", {
+    const completeArgs: Record<string, unknown> = {
       sessionId: this.deps.sessionId,
       outcome: opts.outcome,
       endBranch: opts.end.branch,
       endHead: opts.end.head,
       endDirty: opts.end.dirty,
       captureError,
+      // JEN-457: say so explicitly rather than leaving the server to infer
+      // capture-off from an alignment snapshot a never-aligned session lacks.
+      ...(traceOff ? { captureOff: true } : {}),
       ...(opts.acknowledgeEvidenceGaps
         ? { acknowledgeEvidenceGaps: true }
         : {}),
@@ -876,7 +1039,8 @@ export class SessionBridge {
           : {}),
       },
       expectedUpdatedAt: current.updatedAt,
-    })) as {
+    };
+    const result = (await this.completeWithFallback(completeArgs)) as {
       status?: string;
       captureComplete?: boolean;
       summaryArtifactId?: string | null;
