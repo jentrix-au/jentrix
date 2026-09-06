@@ -43,7 +43,13 @@ import {
   staticBearerSource,
   type SessionBearerSource,
 } from "./session-auth.js";
-import { SessionBridge, type SessionCallTool } from "./session-bridge.js";
+import {
+  createRateLimitBudget,
+  SessionBridge,
+  withHostRateLimitRetry,
+  type RateLimitBudget,
+  type SessionCallTool,
+} from "./session-bridge.js";
 import {
   mapClaudeTranscriptLine,
   openingPromptOf,
@@ -116,6 +122,12 @@ export interface SessionRunPlan {
    * behavior); `jentrix align` sets false unless --capture re-enables it.
    */
   captureTrace?: boolean;
+  /**
+   * JEN-457: the provenance label for `captureTrace`, stamped straight onto the
+   * host marker so `session align` can disclose the operator's own reason
+   * rather than the generic "(live host)".
+   */
+  captureSource?: string;
   /**
    * Session evidence floor (D3): false = no activity skeleton for this
    * session (`jentrix align --no-skeleton`). Default true, independent of
@@ -202,16 +214,27 @@ function bearerSourceOf(
  * resolves the CURRENT bearer, and one unauthorized failure gets one retry
  * after asking the source to refresh (2026-08-08 capture-off finding).
  */
+/** Whatever the SDK's `callTool` resolves to — the union, not a narrowing. */
+type ToolCallResult = Awaited<ReturnType<Client["callTool"]>>;
+
 export function sessionCallTool(
   mcpUrl: string,
   bearerSource: SessionBearerSource,
   sessionId: string,
+  /**
+   * JEN-456 — the host's shared RATE_LIMITED wait budget. A rate-limited
+   * `get_agent_session` inside `bridge.complete()` used to throw and take the
+   * whole close with it ("spool retained for retry", exit 1); it now waits the
+   * envelope's own `retryAfterSeconds` and retries, bounded by the same budget
+   * the bridge's REST calls draw on. Absent = today's behaviour, unchanged.
+   */
+  rateLimitBudget?: RateLimitBudget,
 ): SessionCallTool {
   const attempt = async (
     bearer: string,
     name: string,
     args: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> => {
+  ): Promise<ToolCallResult> => {
     const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
       requestInit: {
         headers: {
@@ -226,33 +249,36 @@ export function sessionCallTool(
     });
     await client.connect(transport, { timeout: 60_000 });
     try {
-      const res = await client.callTool({ name, arguments: args }, undefined, {
+      // Returned, not thrown, so the ONE retry policy can see a RATE_LIMITED
+      // envelope as a RESULT; the throw below is unchanged for every other
+      // failure (`evidenceFloorRefusalOf` still parses its message).
+      return await client.callTool({ name, arguments: args }, undefined, {
         timeout: 60_000,
       });
-      if (res.isError) {
-        const text =
-          Array.isArray(res.content) &&
-          res.content[0] &&
-          "text" in res.content[0]
-            ? (res.content[0] as { text: string }).text
-            : JSON.stringify(res.content);
-        throw new Error(`${name} failed: ${text}`);
-      }
-      return (res.structuredContent ?? {}) as Record<string, unknown>;
     } finally {
       await client.close();
     }
   };
   return async (name, args) => {
-    const bearer = bearerSource.get();
-    try {
-      return await attempt(bearer, name, args);
-    } catch (error) {
-      if (!isUnauthorizedishError(error)) throw error;
-      const next = await bearerSource.refresh(bearer);
-      if (!next || next === bearer) throw error;
-      return attempt(next, name, args);
+    const res = await withHostRateLimitRetry(rateLimitBudget, async () => {
+      const bearer = bearerSource.get();
+      try {
+        return await attempt(bearer, name, args);
+      } catch (error) {
+        if (!isUnauthorizedishError(error)) throw error;
+        const next = await bearerSource.refresh(bearer);
+        if (!next || next === bearer) throw error;
+        return attempt(next, name, args);
+      }
+    });
+    if (res.isError) {
+      const text =
+        Array.isArray(res.content) && res.content[0] && "text" in res.content[0]
+          ? (res.content[0] as { text: string }).text
+          : JSON.stringify(res.content);
+      throw new Error(`${name} failed: ${text}`);
     }
+    return (res.structuredContent ?? {}) as Record<string, unknown>;
   };
 }
 
@@ -381,12 +407,17 @@ export async function runClaudeSessionHost(
     provider: plan.provider,
     mode: plan.mode === "watch" ? "watch" : "launch",
     captureTrace: plan.captureTrace !== false,
+    ...(plan.captureSource ? { captureSource: plan.captureSource } : {}),
     // F1/P3: the transcript this host is bound to — what a compaction hook
     // matches on to find its session without guessing from cwd.
     ...(plan.transcriptPath ? { transcriptPath: plan.transcriptPath } : {}),
   });
   const traceCapture = plan.captureTrace !== false;
   const bearerSource = bearerSourceOf(plan, log);
+  // JEN-456: ONE budget for this host — the bridge's REST calls and the MCP
+  // tool calls draw on the same 60 s, so a rate-limited close still fits
+  // inside the 90 s `jentrix session end` waits for it.
+  const rateLimitBudget = createRateLimitBudget();
   const bridge = new SessionBridge({
     jentrixBaseUrl: plan.jentrixBaseUrl,
     bearer: () => bearerSource.get(),
@@ -397,7 +428,13 @@ export async function runClaudeSessionHost(
     redactor: createSessionRedactor({ homedir: homedir() }),
     callTool:
       deps.callTool ??
-      sessionCallTool(plan.mcpUrl, bearerSource, plan.sessionId),
+      sessionCallTool(
+        plan.mcpUrl,
+        bearerSource,
+        plan.sessionId,
+        rateLimitBudget,
+      ),
+    rateLimitBudget,
     fetchImpl: deps.fetchImpl,
     monotonic: deps.monotonic,
     traceCapture,
@@ -1036,6 +1073,9 @@ export async function runCodexSessionHost(
     mode: "launch",
   });
   const codexBearerSource = bearerSourceOf(plan, log);
+  // JEN-456: one shared rate-limit wait budget for this host (see the Claude
+  // host above).
+  const rateLimitBudget = createRateLimitBudget();
   const bridge = new SessionBridge({
     jentrixBaseUrl: plan.jentrixBaseUrl,
     bearer: () => codexBearerSource.get(),
@@ -1044,7 +1084,13 @@ export async function runCodexSessionHost(
     provider: "codex",
     spool,
     redactor: createSessionRedactor({ homedir: homedir() }),
-    callTool: sessionCallTool(plan.mcpUrl, codexBearerSource, plan.sessionId),
+    callTool: sessionCallTool(
+      plan.mcpUrl,
+      codexBearerSource,
+      plan.sessionId,
+      rateLimitBudget,
+    ),
+    rateLimitBudget,
     fetchImpl: deps.fetchImpl,
     collectSkeleton: plan.collectSkeleton !== false,
     log,

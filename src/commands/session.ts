@@ -434,6 +434,15 @@ export interface SessionAttachFlags extends SessionStartFlags {
   transcriptPath?: string;
   importHistory?: boolean;
   watch?: boolean;
+  /**
+   * JEN-457 — the per-session capture override, at the only moment it can be
+   * made. A host's collection is immutable once it starts, so `align --capture`
+   * over a live host started without capture is REFUSED; connect is where the
+   * decision belongs. Absent = the server resolves it (account default, then
+   * the built-in off).
+   */
+  capture?: boolean;
+  skeleton?: boolean;
 }
 
 interface ProjectCandidate {
@@ -1014,6 +1023,8 @@ export interface LocalHostMarker {
   mode?: string;
   /** Whether the host runs TRACE capture — stamped by runner ≥0.4.13 (AGE-956). */
   captureTrace?: boolean;
+  /** WHERE that mode came from (JEN-457) — the label to disclose verbatim. */
+  captureSource?: string;
   /** False = the transcript path never appeared (AGE-957, runner ≥0.4.14). */
   transcriptSeen?: boolean;
   /**
@@ -2149,6 +2160,16 @@ export async function runSessionConnect(
         // commit and on re-target after `session end`. The server's
         // convergence on (provider, connection, providerSessionId) is the
         // real idempotency; the key only dedupes transport retries.
+        // JEN-457: the tri-state submission — a flag sends, absence OMITS, and
+        // omission is the only way the server reaches the operator's account
+        // default. Same helper the align path uses; no live host exists yet at
+        // connect, so there is no observation to send.
+        ...(captureSubmission(flags.capture, false, false) !== undefined
+          ? { capture: captureSubmission(flags.capture, false, false) }
+          : {}),
+        ...(skeletonSubmission(flags.skeleton) !== undefined
+          ? { skeleton: skeletonSubmission(flags.skeleton) }
+          : {}),
         idempotencyKey: `attach:${randomUUID()}`,
       };
       let attached: Record<string, unknown>;
@@ -2184,6 +2205,18 @@ export async function runSessionConnect(
         scopeLabel = `workspace ${binding.workspaceSlug}`;
       }
       const sessionId = String(attached.id);
+      // JEN-457: the posture the SERVER resolved for this operator — previous
+      // value → account CapturePreference → built-in off. An older server that
+      // does not answer leaves these undefined and the built-ins apply, which
+      // is still the documented default rather than the old TRACE-on.
+      const captureMode: "on" | "off" =
+        (attached as { capture?: string }).capture === "on" ? "on" : "off";
+      const skeletonMode: "on" | "off" =
+        (attached as { skeleton?: string }).skeleton === "off" ? "off" : "on";
+      const captureSources = (attached.captureSources ?? null) as {
+        capture?: string;
+        skeleton?: string;
+      } | null;
       deps.writeOut(
         `${attached.converged ? "Reconnected to" : "Connected"} Jentrix session ${sessionId} · ${scopeLabel}`,
       );
@@ -2218,6 +2251,14 @@ export async function runSessionConnect(
           ...(hookDir ? { hookDir } : {}),
           // Capture begins at attachment; --import-history tails from byte 0.
           importHistory: Boolean(flags.importHistory),
+          // JEN-457: the host starts under the RESOLVED mode. Omitting these
+          // is what made every connected session TRACE-on regardless of the
+          // operator's own default.
+          captureTrace: captureMode === "on",
+          collectSkeleton: skeletonMode === "on",
+          ...(captureSources?.capture
+            ? { captureSource: captureSources.capture }
+            : {}),
           spoolRoot: deps.spoolRoot,
         };
         if (flags.watch) {
@@ -2229,7 +2270,10 @@ export async function runSessionConnect(
         if (pid !== null) {
           deps.writeOut(
             [
-              `Capture running in the background (host pid ${pid}) — \`jentrix session status ${sessionId}\` shows local liveness; \`jentrix session end ${sessionId}\` finalizes it.`,
+              captureMode === "on"
+                ? `Capture running in the background (host pid ${pid}) — TRACE capture ON ${captureSources?.capture ?? "(built-in)"}.`
+                : `Session host running in the background (pid ${pid}) — heartbeats + telemetry; TRACE capture is OFF ${captureSources?.capture ?? "(built-in)"}.`,
+              `\`jentrix session status ${sessionId}\` shows local liveness; \`jentrix session end ${sessionId}\` finalizes it.`,
               "Pre-attach history stays out of coverage unless imported through a supported provider surface.",
             ].join("\n"),
           );
@@ -2240,8 +2284,37 @@ export async function runSessionConnect(
       return 0;
     });
   } catch (error) {
-    return reportError(error, deps);
+    return reportError(captureFlagUnsupported(error, flags), deps);
   }
+}
+
+/**
+ * JEN-457 — `connect --capture` / `--no-capture` reach the server as fields the
+ * app half added in the same change, and the CLI is released separately, so a
+ * client can meet a deployment that predates them. The server's own refusal
+ * ("Unknown parameter \"capture\" for this tool") is accurate and useless: it
+ * names a parameter the operator never typed. Say what actually happened.
+ *
+ * Only the flags, only that refusal — everything else propagates untouched.
+ * The failure is deliberately NOT swallowed: starting a capturing host the
+ * server would record as capture-off is a consent defect, not a fallback.
+ */
+function captureFlagUnsupported(
+  error: unknown,
+  flags: SessionAttachFlags,
+): unknown {
+  if (flags.capture === undefined && flags.skeleton === undefined) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  const field = message.includes('Unknown parameter "capture"')
+    ? "--capture/--no-capture"
+    : message.includes('Unknown parameter "skeleton"')
+      ? "--skeleton/--no-skeleton"
+      : null;
+  if (!field) return error;
+  return new UsageError(
+    `${field} at connect needs a Jentrix deployment that supports it, and this one does not (it refused the field). ` +
+      "Connect without the flag — your account default decides — or set the posture at Account → Capture.",
+  );
 }
 
 /**
@@ -3663,8 +3736,16 @@ export function captureSourceLabel(
   requested: boolean | undefined,
   liveHost: boolean,
   serverLabel: string | undefined,
+  /**
+   * JEN-457 — the provenance the live host was STARTED with, off its own
+   * marker. `connect` now resolves the mode through the server's chain before
+   * launching, so the host's state is no longer an unattributable fact about a
+   * process: it is the operator's own default (or flag), and saying so beats
+   * naming the messenger. Absent (older host, or no host) ⇒ "(live host)".
+   */
+  hostSource?: string,
 ): string | undefined {
-  if (requested === undefined && liveHost) return "(live host)";
+  if (requested === undefined && liveHost) return hostSource ?? "(live host)";
   return serverLabel;
 }
 
@@ -3900,6 +3981,7 @@ export async function runSessionAlign(
               flags.capture,
               liveHost !== null,
               serverSources.capture,
+              liveHost?.captureSource,
             ),
             skeleton: serverSources.skeleton,
           }
@@ -3974,6 +4056,9 @@ export async function runSessionAlign(
             ...(hookDir ? { hookDir } : {}),
             captureTrace: captureMode === "on",
             collectSkeleton: skeletonMode === "on",
+            ...(captureSources?.capture
+              ? { captureSource: captureSources.capture }
+              : {}),
             spoolRoot: deps.spoolRoot,
           },
           auth.env,
@@ -4088,6 +4173,10 @@ export function registerSessionCommand(
       "--watch",
       "keep capturing beside the running provider until it ends",
     )
+    .option("--capture", "TRACE capture on for this session")
+    .option("--no-capture", "TRACE capture off")
+    .option("--skeleton", "activity skeleton on")
+    .option("--no-skeleton", "activity skeleton off")
     .action(async (flags: SessionAttachFlags) =>
       onExit(await runSessionConnect(flags, deps)),
     );

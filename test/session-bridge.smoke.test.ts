@@ -11,8 +11,11 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  createRateLimitBudget,
   MAX_FINAL_RESPONSE_BYTES,
+  retryAfterOfResponse,
   SessionBridge,
+  withHostRateLimitRetry,
 } from "../src/session-host/session-bridge.js";
 import { mapClaudeTranscriptLine } from "../src/session-host/session-claude-transcript.js";
 import { mapCodexThreadEvent } from "../src/session-host/session-codex-events.js";
@@ -832,4 +835,254 @@ test("bridge: flushUsageNow bypasses the 30 s window and reports the server's ac
   // A failed post is reported as NOT acknowledged — never a lie.
   respondOk = false;
   assert.equal(await bridge.flushUsageNow(), false);
+});
+
+// ---------------------------------------------------------------------------
+// JEN-456 — bounded RATE_LIMITED backoff. Before this, a 429 on the heartbeat
+// was a silent liveness loss, a 429 on the final response lost the session's
+// closing output, and a RATE_LIMITED `get_agent_session` inside complete() threw
+// and took the whole close with it ("spool retained for retry", exit 1) — all
+// four observed on prod on 2026-09-06 with five hosts under one token.
+// ---------------------------------------------------------------------------
+
+/** A Response-shaped stub: only status + headers + the two readers are used. */
+function rateLimited(retryAfter: string | null): Response {
+  return {
+    ok: false,
+    status: 429,
+    headers: {
+      get: (name: string) => (name === "retry-after" ? retryAfter : null),
+    },
+    json: async () => ({ error: "RATE_LIMITED" }),
+    text: async () => '{"error":"RATE_LIMITED"}',
+  } as unknown as Response;
+}
+
+function okResponse(body: unknown = { ok: true }): Response {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as unknown as Response;
+}
+
+test("retryAfterOfResponse reads Retry-After, defaults, and ignores non-429", () => {
+  assert.equal(retryAfterOfResponse(rateLimited("34")), 34);
+  // No usable header (an older server): retry once conservatively rather than
+  // abandon the close, because the close is what is being protected.
+  assert.equal(retryAfterOfResponse(rateLimited(null)), 5);
+  assert.equal(retryAfterOfResponse(rateLimited("garbage")), 5);
+  assert.equal(retryAfterOfResponse(okResponse()), null);
+});
+
+test("the rate-limit budget is shared, bounded, and never goes negative", () => {
+  const budget = createRateLimitBudget(10_000);
+  assert.equal(budget.remainingSeconds(), 10);
+  budget.spend(4_000);
+  assert.equal(budget.remainingSeconds(), 6);
+  budget.spend(60_000);
+  assert.equal(budget.remainingSeconds(), 0);
+  budget.spend(-5);
+  assert.equal(budget.remainingSeconds(), 0);
+});
+
+test("a rate-limited heartbeat waits Retry-After and succeeds on the retry", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-rl-beat-"));
+  const slept: number[] = [];
+  let calls = 0;
+  const logs: string[] = [];
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_rl",
+    provider: "claude",
+    spool: new SessionSpool(root, "ses_rl"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    callTool: async () => ({}),
+    rateLimitBudget: createRateLimitBudget(),
+    log: (line) => logs.push(line),
+    fetchImpl: (async () => {
+      calls += 1;
+      return calls === 1 ? rateLimited("3") : okResponse();
+    }) as unknown as typeof fetch,
+  });
+  // Inject the sleep through the module helper rather than really waiting.
+  const originalSetTimeout = globalThis.setTimeout;
+  (globalThis as { setTimeout: unknown }).setTimeout = ((
+    fn: () => void,
+    ms: number,
+  ) => {
+    slept.push(ms);
+    fn();
+    return 0 as unknown as ReturnType<typeof originalSetTimeout>;
+  }) as unknown as typeof originalSetTimeout;
+  try {
+    const acked = await bridge.flushUsageNow();
+    assert.equal(acked, true, "the retry must succeed, not report a dead beat");
+  } finally {
+    (globalThis as { setTimeout: unknown }).setTimeout = originalSetTimeout;
+  }
+  assert.equal(calls, 2, "exactly one retry");
+  assert.deepEqual(slept, [3000], "waited the server's own Retry-After");
+  assert.equal(logs.length, 1, "said it ONCE, not once per attempt");
+  assert.match(logs[0]!, /rate limited \(HTTP 429\)/);
+});
+
+test("an exhausted budget stops retrying instead of hanging past the close window", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-rl-budget-"));
+  let calls = 0;
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_rl2",
+    provider: "claude",
+    spool: new SessionSpool(root, "ses_rl2"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    callTool: async () => ({}),
+    // Zero budget: `jentrix session end` waits 90 s for the host, so a wait
+    // that does not fit is never taken.
+    rateLimitBudget: createRateLimitBudget(0),
+    fetchImpl: (async () => {
+      calls += 1;
+      return rateLimited("59");
+    }) as unknown as typeof fetch,
+  });
+  assert.equal(await bridge.flushUsageNow(), false);
+  assert.equal(calls, 1, "no wait fits, so no retry is attempted");
+});
+
+test("without a budget the bridge behaves exactly as before (no backoff)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-rl-none-"));
+  let calls = 0;
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_rl3",
+    provider: "claude",
+    spool: new SessionSpool(root, "ses_rl3"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    callTool: async () => ({}),
+    fetchImpl: (async () => {
+      calls += 1;
+      return rateLimited("3");
+    }) as unknown as typeof fetch,
+  });
+  assert.equal(await bridge.flushUsageNow(), false);
+  assert.equal(calls, 1);
+});
+
+test("withHostRateLimitRetry retries a RATE_LIMITED tool envelope, bounded", async () => {
+  const budget = createRateLimitBudget(60_000);
+  const slept: number[] = [];
+  let attempts = 0;
+  const envelope = {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          error: {
+            code: "RATE_LIMITED",
+            message: "Rate limit exceeded (60 requests/min)",
+            retryAfterSeconds: 4,
+          },
+        }),
+      },
+    ],
+  };
+  let clock = 0;
+  const result = await withHostRateLimitRetry(
+    budget,
+    async () => {
+      attempts += 1;
+      return attempts === 1 ? envelope : { ok: true };
+    },
+    undefined,
+    async (ms) => {
+      slept.push(ms);
+      clock += ms;
+    },
+    () => clock,
+  );
+  assert.deepEqual(result, { ok: true });
+  assert.equal(attempts, 2);
+  assert.deepEqual(slept, [4000]);
+  // The wait is charged to the shared budget, so the REST and MCP paths of one
+  // close cannot each spend the whole thing.
+  assert.equal(budget.remainingSeconds(), 56);
+});
+
+// JEN-457 — the CLI is released separately from the app, and the server
+// rejects unknown parameters outright ("INVALID_INPUT: Unknown parameter
+// \"captureOff\" for this tool", verified against prod on 2026-09-06). A client
+// carrying the field must not lose the close against a server that predates it.
+test("complete drops captureOff and closes anyway when the server rejects it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-fwdcompat-"));
+  const seen: Array<Record<string, unknown>> = [];
+  const logs: string[] = [];
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_fwd",
+    provider: "claude",
+    spool: new SessionSpool(root, "ses_fwd"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    traceCapture: false,
+    log: (line) => logs.push(line),
+    callTool: async (name, args) => {
+      if (name === "get_agent_session") {
+        return { updatedAt: "2026-08-06T10:00:00.000Z" };
+      }
+      seen.push(args);
+      if (name === "complete_agent_session" && "captureOff" in args) {
+        throw new Error(
+          'complete_agent_session failed: {"error":{"code":"INVALID_INPUT","message":"Unknown parameter \\"captureOff\\" for this tool."}}',
+        );
+      }
+      return { status: "COMPLETED", captureComplete: true };
+    },
+  });
+  const result = await bridge.complete({
+    outcome: "COMPLETED",
+    end: { branch: "main", head: "abc", dirty: false },
+  });
+  assert.equal(result.status, "COMPLETED", "the close must still happen");
+  assert.equal(seen.length, 2, "one rejected attempt, one without the field");
+  assert.equal(seen[0]!.captureOff, true);
+  assert.equal("captureOff" in seen[1]!, false);
+  // Everything else survives the retry untouched.
+  assert.equal(seen[1]!.sessionId, "ses_fwd");
+  assert.equal(seen[1]!.outcome, "COMPLETED");
+  assert.match(logs.join("\n"), /does not accept `captureOff`/);
+});
+
+test("complete does NOT swallow an unrelated refusal", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-fwdcompat2-"));
+  let calls = 0;
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_fwd2",
+    provider: "claude",
+    spool: new SessionSpool(root, "ses_fwd2"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    traceCapture: false,
+    callTool: async (name) => {
+      if (name === "get_agent_session") {
+        return { updatedAt: "2026-08-06T10:00:00.000Z" };
+      }
+      calls += 1;
+      throw new Error("complete_agent_session failed: EVIDENCE_FLOOR refusal");
+    },
+  });
+  await assert.rejects(
+    bridge.complete({
+      outcome: "COMPLETED",
+      end: { branch: "main", head: "abc", dirty: false },
+    }),
+    /EVIDENCE_FLOOR/,
+  );
+  assert.equal(calls, 1, "no blind retry on a real refusal");
 });

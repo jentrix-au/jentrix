@@ -21,9 +21,10 @@ Commands:
   member          list, remove, set-role
   project         add-link, create, get, list, remove-link, resolve-for-repo, … (7 commands)
   resume          agent-session
+  review          get-dossier, list-queue
   revoke          invitation
   subtask         create, delete, toggle
-  task            archive, create, get, list, move, search, … (9 commands)
+  task            archive, create, get, list, move, search, … (10 commands)
   token           get-context
   workspace       create, list, update
   help [command]  display help for command

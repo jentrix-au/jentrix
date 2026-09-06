@@ -7,7 +7,7 @@
 
 import { envelopeOfResult } from "./errors";
 
-export interface RetryOptions {
+export interface RetryOptions<T = unknown> {
   /** Retries AFTER the first attempt; 0 = `--no-wait` (never sleep). */
   maxRetries: number;
   /**
@@ -21,6 +21,17 @@ export interface RetryOptions {
   sleep: (ms: number) => Promise<void>;
   /** Injected clock (epoch milliseconds). */
   now: () => number;
+  /**
+   * JEN-456 — how to read "wait this long" off a result that is not an MCP
+   * tool-call envelope. The session host's heartbeat, trace-part upload and
+   * typed-push go over REST, where the refusal is an HTTP 429 carrying
+   * `Retry-After`, not an envelope; this lets the ONE retry policy cover both
+   * rather than growing a second one beside it. Return null for "not rate
+   * limited" — every other result is returned to the caller untouched.
+   *
+   * Absent ⇒ the MCP envelope reader, which is the original behaviour.
+   */
+  retryAfterOf?: (result: T) => number | null;
 }
 
 /**
@@ -35,20 +46,19 @@ export interface RetryOptions {
  */
 export async function withRateLimitRetry<T>(
   fn: () => Promise<T>,
-  options: RetryOptions,
+  options: RetryOptions<T>,
 ): Promise<T> {
-  const { maxRetries, maxWaitSeconds, sleep, now } = options;
+  const { maxRetries, maxWaitSeconds, sleep, now, retryAfterOf } = options;
   const start = now();
   let attempt = 0;
   for (;;) {
     const result = await fn();
-    const envelope = envelopeOfResult(result);
-    if (envelope?.error.code !== "RATE_LIMITED") return result;
-    const retryAfter = envelope.error.retryAfterSeconds;
+    const retryAfter = retryAfterOf
+      ? retryAfterOf(result)
+      : envelopeRetryAfter(result);
+    if (retryAfter === null) return result;
     // No usable wait hint → don't guess, don't loop.
-    if (typeof retryAfter !== "number" || !Number.isFinite(retryAfter)) {
-      return result;
-    }
+    if (!Number.isFinite(retryAfter)) return result;
     if (retryAfter < 0) return result;
     if (attempt >= maxRetries) return result;
     const elapsedMs = now() - start;
@@ -56,4 +66,16 @@ export async function withRateLimitRetry<T>(
     await sleep(retryAfter * 1000);
     attempt += 1;
   }
+}
+
+/**
+ * The default reader: a RATE_LIMITED tool-call envelope's `retryAfterSeconds`,
+ * or null when the result is not a rate-limit refusal. An envelope that refuses
+ * without a usable hint yields NaN, which the caller treats as "don't guess".
+ */
+function envelopeRetryAfter(result: unknown): number | null {
+  const envelope = envelopeOfResult(result);
+  if (envelope?.error.code !== "RATE_LIMITED") return null;
+  const retryAfter = envelope.error.retryAfterSeconds;
+  return typeof retryAfter === "number" ? retryAfter : NaN;
 }

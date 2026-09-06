@@ -1,6 +1,6 @@
 Usage: jentrix task [options] [command]
 
-archive, create, get, list, move, search, … (9 commands)
+archive, create, get, list, move, search, … (10 commands)
 
 Options:
   -h, --help               display help for command
@@ -20,4 +20,5 @@ Commands:
   set-assignees [options]  Set the full list of assignees on a task.
   set-labels [options]     Set the full list of labels on a task.
   update [options]         Update fields on an existing task.
+  update-review [options]  Create or update review request metadata.
   help [command]           display help for command

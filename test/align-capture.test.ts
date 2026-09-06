@@ -156,3 +156,46 @@ describe("captureSourceLabel", () => {
     assert.equal(captureSourceLabel(undefined, false, undefined), undefined);
   });
 });
+
+// ---------------------------------------------------------------------------
+// JEN-457 — a live host still SENDS its observed capture state (the snapshot is
+// a consent record of collection actually happening), but the DISCLOSURE now
+// names the operator's own reason instead of the messenger. `connect` resolves
+// the mode through the server's chain before launching, and stamps that
+// provenance on the host marker.
+// ---------------------------------------------------------------------------
+
+describe("captureSourceLabel — host provenance (JEN-457)", () => {
+  it("prefers the live host's own recorded source over the generic label", () => {
+    assert.equal(
+      captureSourceLabel(undefined, true, "(flag)", "(built-in)"),
+      "(built-in)",
+    );
+    assert.equal(
+      captureSourceLabel(undefined, true, "(flag)", "(your default)"),
+      "(your default)",
+    );
+  });
+
+  it("falls back to (live host) for a host started by an older CLI", () => {
+    assert.equal(
+      captureSourceLabel(undefined, true, "(flag)", undefined),
+      "(live host)",
+    );
+  });
+
+  it("an explicit flag still reports the SERVER's label, host or not", () => {
+    assert.equal(
+      captureSourceLabel(true, true, "(flag)", "(your default)"),
+      "(flag)",
+    );
+    assert.equal(captureSourceLabel(false, false, "(flag)"), "(flag)");
+  });
+
+  it("no host, no flag: the server's word, unchanged", () => {
+    assert.equal(
+      captureSourceLabel(undefined, false, "(your default)"),
+      "(your default)",
+    );
+  });
+});
