@@ -24,6 +24,7 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  renameSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -271,7 +272,86 @@ function writeAlignmentMarkerFile(
 ): void {
   const path = alignmentMarkerPath(configPath, repoRoot);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, JSON.stringify(file), { mode: 0o600 });
+  // TMP + RENAME, never a plain write. `rename(2)` is atomic within a
+  // filesystem, so a concurrent reader sees the old file or the new one and
+  // never a half-written one — a torn parse returns null from
+  // `readAlignmentMarkerFile`, which reads as "this session was never
+  // aligned" and is the worse of the two failure modes this file has.
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(file), { mode: 0o600 });
+  renameSync(tmp, path);
+}
+
+/** Sync sleep — the marker API is sync throughout and stays that way. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** A lock nobody holds for longer than this is assumed to be a crashed one. */
+const MARKER_LOCK_STALE_MS = 5_000;
+const MARKER_LOCK_WAIT_MS = 2_000;
+
+/**
+ * Read → transform → write the marker map under an exclusive lock.
+ *
+ * The map holds one entry PER PROVIDER SESSION, and several sessions of one
+ * operator share a checkout — the documented use. Both mutations
+ * (`writeAlignmentMarker`, `clearAlignmentMarker`) are read-modify-write, so
+ * two of them interleaving loses an entry: last writer wins, and the session
+ * whose entry vanished looks unaligned until it re-aligns. The network calls
+ * that precede each write make the window small, which is why the 2026-09-06
+ * three-session test did not hit it — small is not zero, and this is the file
+ * every push resolves through.
+ *
+ * `mkdir` is the lock because it is atomic on every filesystem Node runs on,
+ * needs no dependency, and leaves a directory whose mtime dates it.
+ *
+ * IT NEVER FAILS AN ALIGNMENT. A lock held past the wait budget is broken and
+ * the write proceeds: alignment is the operator's anchor for their work, and
+ * refusing it because another process is slow would trade a rare lost entry
+ * for a common hard stop. Losing the lock costs at most the original race,
+ * which tmp+rename already keeps from corrupting anything.
+ */
+function mutateAlignmentMarkerFile(
+  configPath: string,
+  repoRoot: string,
+  transform: (current: AlignmentMarkerFile | null) => AlignmentMarkerFile | null,
+): void {
+  const path = alignmentMarkerPath(configPath, repoRoot);
+  const lock = `${path}.lock`;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  let held = false;
+  const deadline = Date.now() + MARKER_LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      held = true;
+      break;
+    } catch {
+      // Held by someone. Break a stale one (crashed mid-write), else wait.
+      try {
+        const age = Date.now() - statSync(lock).mtimeMs;
+        if (age > MARKER_LOCK_STALE_MS) {
+          rmSync(lock, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue; // it vanished between the two calls — try to take it
+      }
+      if (Date.now() >= deadline) break; // proceed unlocked, see the doc above
+      sleepSync(25);
+    }
+  }
+  try {
+    const next = transform(readAlignmentMarkerFile(configPath, repoRoot));
+    if (next === null) {
+      rmSync(path, { force: true });
+    } else {
+      writeAlignmentMarkerFile(configPath, repoRoot, next);
+    }
+  } finally {
+    if (held) rmSync(lock, { recursive: true, force: true });
+  }
 }
 
 export function readAlignmentMarker(
@@ -308,14 +388,8 @@ export function writeAlignmentMarker(
   // No provider session id (a non-Claude front end) keys the entry by the
   // STACKS session id: still unique per session, still never colliding.
   const key = providerSessionId || marker.sessionId;
-  writeAlignmentMarkerFile(
-    configPath,
-    repoRoot,
-    upsertAlignmentMarker(
-      readAlignmentMarkerFile(configPath, repoRoot),
-      key,
-      marker,
-    ),
+  mutateAlignmentMarkerFile(configPath, repoRoot, (current) =>
+    upsertAlignmentMarker(current, key, marker),
   );
 }
 
@@ -332,17 +406,20 @@ export function clearAlignmentMarker(
   repoRoot: string,
   sessionId: string,
 ): void {
-  const file = readAlignmentMarkerFile(configPath, repoRoot);
-  if (!file) return;
-  const next = removeAlignmentMarkerEntry(file, sessionId);
-  if (next === null) {
-    rmSync(alignmentMarkerPath(configPath, repoRoot), { force: true });
-    return;
-  }
-  if (Object.keys(next.sessions).length === Object.keys(file.sessions).length) {
-    return; // nothing pointed at this session
-  }
-  writeAlignmentMarkerFile(configPath, repoRoot, next);
+  mutateAlignmentMarkerFile(configPath, repoRoot, (file) => {
+    // Re-read INSIDE the lock: the file this decision is made from must be the
+    // one the write lands on, or a concurrent re-align that claimed the key
+    // between the two is silently dropped.
+    if (!file) return null;
+    const next = removeAlignmentMarkerEntry(file, sessionId);
+    if (next === null) return null; // the transform's null removes the file
+    if (
+      Object.keys(next.sessions).length === Object.keys(file.sessions).length
+    ) {
+      return file; // nothing pointed at this session — write it back unchanged
+    }
+    return next;
+  });
 }
 
 export interface SessionCommandDeps {
@@ -3926,11 +4003,21 @@ export async function runSessionAlign(
       if (liveHost && alignChangesBucket(currentTaskId, taskId)) {
         const acked = await requestUsageFlush(deps, sessionId);
         boundary = acked ? "FLUSHED" : "UNFLUSHED";
-        deps.writeOut(
-          acked
-            ? "Usage flush acknowledged by the live session host — spend so far is recorded on the previous alignment."
-            : "Live session host did not acknowledge the usage flush in time — mid-switch spend stays bounded by one heartbeat window (~30s).",
-        );
+        // `--json` promises a parseable document on stdout, and this line was
+        // landing ABOVE it — `jq` and `JSON.parse` both die on it (JEN-457
+        // follow-up, observed while verifying an align on prod). Nothing is
+        // lost by withholding it there: the SAME fact rides the document as
+        // `boundary`, which is the machine-readable form of exactly this
+        // sentence. Prose to a human, an enum to a parser — never both to a
+        // parser. The unflushed arm still reaches a `--json` caller, because
+        // it is a real telemetry-attribution caveat, not decoration.
+        if (!flags.json) {
+          deps.writeOut(
+            acked
+              ? "Usage flush acknowledged by the live session host — spend so far is recorded on the previous alignment."
+              : "Live session host did not acknowledge the usage flush in time — mid-switch spend stays bounded by one heartbeat window (~30s).",
+          );
+        }
       }
 
       const aligned = await callStructured(caller, "align_agent_session", {

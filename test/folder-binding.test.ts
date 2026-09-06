@@ -337,7 +337,18 @@ test("session align: the unaligned→first-task boundary FLUSHES (D6 — the wiz
     d,
   );
   assert.equal(code, 0);
-  const payload = JSON.parse(d.out.at(-1)!) as Record<string, unknown>;
+  // JEN-457 follow-up: `--json` means stdout is a DOCUMENT, not a document with
+  // prose above it. The flush disclosure used to print here unconditionally, so
+  // `jq` and `JSON.parse` both died on the first line — and this assertion used
+  // to read `d.out.at(-1)`, which is exactly how the defect stayed invisible to
+  // its own test. Every line on stdout must parse.
+  assert.equal(
+    d.out.length,
+    1,
+    `--json wrote ${d.out.length} lines to stdout: ${JSON.stringify(d.out)}`,
+  );
+  const payload = JSON.parse(d.out[0]!) as Record<string, unknown>;
+  // The fact the withheld sentence carried is still here, machine-readable.
   assert.equal(payload.boundary, "FLUSHED", "null→task flushed (the D6 widen)");
   assert.equal(aligns.length, 1);
   assert.equal(aligns[0]!.taskId, "task_42");
