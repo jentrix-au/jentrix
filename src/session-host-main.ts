@@ -18,8 +18,10 @@
  * file is unlinked on read.
  */
 
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SESSION_HOST_PROTOCOL_VERSION = 1;
 
@@ -152,10 +154,27 @@ export async function sessionHostMain(args: string[]): Promise<number> {
   return 2;
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined &&
-  /session-host-main\.(js|ts)$/.test(process.argv[1]);
-if (invokedDirectly) {
+/**
+ * Direct invocation, symlink-proof (JEN-461). npm links this bin as
+ * `bin/jentrix-session-host -> …/dist/session-host-main.js` and Node leaves
+ * `process.argv[1]` as the UNRESOLVED symlink path, so matching the script's
+ * FILENAME made every bare `jentrix-session-host …` command a silent no-op:
+ * exit 0, nothing dispatched, no ledger written — the shape both shipped
+ * plugin `hooks.json` files use. Compare REAL paths instead, on both
+ * sides, so `--preserve-symlinks-main` cannot desynchronise them. Never
+ * throws: a hook forwarder that dies at module load is worse than one that
+ * no-ops.
+ */
+function invokedDirectly(entry: string | undefined): boolean {
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly(process.argv[1])) {
   sessionHostMain(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (error: unknown) => {
