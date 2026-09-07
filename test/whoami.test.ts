@@ -5,6 +5,7 @@ import type { ToolCaller } from "../src/call";
 import { ConfigError } from "../src/config";
 import type { ToolCommandDeps } from "../src/commands/tool";
 import {
+  describeConfigFile,
   redactToken,
   runWhoamiCommand,
   WHOAMI_SCOPE_NOTE,
@@ -434,6 +435,110 @@ describe("runWhoamiCommand — config source reporting", () => {
     const report = JSON.parse(rec.out[0]) as WhoamiReport;
     assert.equal(report.tokenSource, "file");
     assert.equal(report.urlSource, "file");
+  });
+
+  // JEN-467 — the folder-local `.stacks/config.json` and the machine-wide
+  // home file both read "(config file)"; the operator could only tell which
+  // grant they were looking at by running the command from another directory.
+  const fileConfig = () => ({
+    token: "tm_file_token_ffff",
+    url: "https://f.test/api/mcp",
+  });
+
+  it("names a folder-local config file, relative to cwd (JEN-467)", async () => {
+    const { deps, rec } = makeDeps({
+      env: {},
+      configFile: fileConfig,
+      configPath: () => "/home/dev/app/.stacks/config.json",
+      cwd: () => "/home/dev/app",
+      homeDir: () => "/home/dev",
+    });
+    await runWhoamiCommand(flags(), deps);
+    assert.match(
+      rec.out[0],
+      /server:  https:\/\/f\.test\/api\/mcp  \(folder config \.\/\.stacks\/config\.json\)/,
+    );
+    assert.match(
+      rec.out[0],
+      /token:   tm_…ffff  \(folder config \.\/\.stacks\/config\.json\)/,
+    );
+    const j = makeDeps({
+      env: {},
+      configFile: fileConfig,
+      configPath: () => "/home/dev/app/.stacks/config.json",
+      cwd: () => "/home/dev/app",
+      homeDir: () => "/home/dev",
+    });
+    await runWhoamiCommand(flags({ json: true }), j.deps);
+    const report = JSON.parse(j.rec.out[0]) as WhoamiReport;
+    assert.equal(report.configPath, "/home/dev/app/.stacks/config.json");
+    assert.equal(report.configScope, "folder");
+    // A walk-up hit ABOVE cwd is not under it: the full path, never "../".
+    assert.equal(
+      describeConfigFile(
+        "/home/dev/app/.stacks/config.json",
+        "/home/dev/app/sub",
+        "/home/dev",
+        false,
+      ).label,
+      "folder config /home/dev/app/.stacks/config.json",
+    );
+    // Windows: the re-run block expects `.\.stacks\config.json`.
+    assert.equal(
+      describeConfigFile(
+        "C:\\Projects\\test-jentrix\\.stacks\\config.json",
+        "C:\\Projects\\test-jentrix",
+        "C:\\Users\\u",
+        true,
+      ).label,
+      "folder config .\\.stacks\\config.json",
+    );
+  });
+
+  it("names the machine-wide home file — `~` on POSIX, the real path on win32 (JEN-467)", async () => {
+    const { deps, rec } = makeDeps({
+      env: {},
+      configFile: fileConfig,
+      configPath: () => "/home/dev/.config/stacks/config.json",
+      cwd: () => "/home/dev/app",
+      homeDir: () => "/home/dev",
+    });
+    await runWhoamiCommand(flags(), deps);
+    assert.match(
+      rec.out[0],
+      /server:  https:\/\/f\.test\/api\/mcp  \(machine config ~\/\.config\/stacks\/config\.json\)/,
+    );
+    assert.match(
+      rec.out[0],
+      /token:   tm_…ffff  \(machine config ~\/\.config\/stacks\/config\.json\)/,
+    );
+    const j = makeDeps({
+      env: {},
+      configFile: fileConfig,
+      configPath: () => "/home/dev/.config/stacks/config.json",
+      cwd: () => "/home/dev/app",
+      homeDir: () => "/home/dev",
+    });
+    await runWhoamiCommand(flags({ json: true }), j.deps);
+    const report = JSON.parse(j.rec.out[0]) as WhoamiReport;
+    assert.equal(report.configPath, "/home/dev/.config/stacks/config.json");
+    assert.equal(report.configScope, "machine");
+    // win32 has no `~`: the real path, as the operator will read it.
+    assert.equal(
+      describeConfigFile(
+        "C:\\Users\\u\\.config\\stacks\\config.json",
+        "C:\\Projects\\test-jentrix",
+        "C:\\Users\\u",
+        true,
+      ).label,
+      "machine config C:\\Users\\u\\.config\\stacks\\config.json",
+    );
+    // A bag that does not say where it looked keeps the bare wording.
+    const bare = makeDeps({ env: {}, configFile: fileConfig });
+    await runWhoamiCommand(flags({ json: true }), bare.deps);
+    const bareReport = JSON.parse(bare.rec.out[0]) as WhoamiReport;
+    assert.equal(bareReport.configPath, null);
+    assert.equal(bareReport.configScope, null);
   });
 });
 

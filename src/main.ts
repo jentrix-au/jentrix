@@ -214,6 +214,10 @@ const manifest = loadManifest();
 const deps: ToolCommandDeps = {
   env: process.env,
   configFile,
+  // JEN-467: whoami names WHICH file `configFile()` read.
+  configPath: () => CONFIG_PATH,
+  cwd: () => process.cwd(),
+  homeDir: () => homedir(),
   knownTools: manifest
     ? new Set(manifest.tools.map((tool) => tool.name))
     : null,
