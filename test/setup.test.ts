@@ -251,6 +251,39 @@ test("setup never installs @jentrix/runner (v2: the host ships in the CLI)", asy
   );
 });
 
+test("a retired @jentrix/runner left by a 0.5.x install is NAMED with the removal command (JEN-468)", async () => {
+  // Windows probe, 2026-09-07: after 0.5.19 → 0.8.2 the `jentrix-runner` and
+  // `stacks-runner` shim trios from @jentrix/runner 0.5.x were still on PATH,
+  // pointing at a package that is no longer published.
+  const RUNNER = "/usr/lib/node_modules/@jentrix/runner";
+  const d = deps({
+    globalInstall: async () => ({
+      cliDir: "/usr/lib/node_modules/@jentrix/cli",
+      cliVersion: CLI_VERSION,
+      runnerDir: RUNNER,
+      binDir: "/usr/bin",
+      binDirOnPath: true,
+      runningFromGlobal: false,
+    }),
+    readTextFile: (path) =>
+      path === `${RUNNER}/package.json`
+        ? '{"name":"@jentrix/runner","version":"0.5.19"}'
+        : null,
+  });
+  assert.equal(await runSetupCommand({}, d), 0);
+  const out = d.out.join("\n");
+  assert.match(
+    out,
+    /note: the retired @jentrix\/runner 0\.5\.19 is still installed — remove it with\n {6}npm rm -g @jentrix\/runner {2}\(the session host now ships inside @jentrix\/cli\)\./,
+  );
+  // Said, never removed: no npm rm of the runner.
+  assert.ok(!npmArgs(d).some((a) => a.includes("@jentrix/runner")));
+  // A machine without the old package hears nothing about it.
+  const clean = deps();
+  await runSetupCommand({}, clean);
+  assert.ok(!/@jentrix\/runner/.test(clean.out.join("\n")));
+});
+
 test("it registers the plugin for each runtime present and notes each absent one", async () => {
   const d = deps({ resolveCodex: async () => null });
   assert.equal(await runSetupCommand({}, d), 0);
@@ -297,8 +330,14 @@ test("a plugin that fails to install is NAMED and fails the run — for EITHER r
       new RegExp(`jentrix plugin install ${broken}`),
       `${broken}: the operator needs the command that shows why`,
     );
-    // The rest of setup still ran — a plugin failure is not an abort.
-    assert.match(out, /Done\. Verify with: jentrix whoami/);
+    // The rest of setup still ran — a plugin failure is not an abort — but
+    // the closing line agrees with the exit code (JEN-465): never "Done."
+    // above a failure note.
+    assert.match(
+      out,
+      /Finished with 1 problem\(s\) — see the note lines above\. Verify with: jentrix whoami/,
+    );
+    assert.ok(!/Done\./.test(out));
   }
 });
 
@@ -306,6 +345,58 @@ test("a clean run still exits 0 and names no failure", async () => {
   const d = deps();
   assert.equal(await runSetupCommand({}, d), 0);
   assert.ok(!/did NOT install/.test(d.out.join("\n")));
+  assert.match(d.out.join("\n"), /Done\. Verify with: jentrix whoami/);
+});
+
+// --- JEN-465: the installer tells the truth ---------------------------------
+// Windows probe, 2026-09-07: "Done." printed above two failure notes with
+// exit 1; the browser sign-in skipped without a line when a credential
+// existed; and a refused `--workspace` binding exited 0 with a note.
+
+test("a machine that is signed in already SAYS so, with the server, and exits 0", async () => {
+  const d = deps({ hasCredential: () => true });
+  assert.equal(await runSetupCommand({}, d), 0);
+  assert.deepEqual(d.logins, []);
+  const out = d.out.join("\n");
+  assert.match(
+    out,
+    /Signed in already \(server https:\/\/stacks-mvp\.vercel\.app\/api\/mcp\) — skipping the browser sign-in; `jentrix logout` to change it\./,
+  );
+  assert.match(out, /Done\. Verify with: jentrix whoami/);
+});
+
+test("a REFUSED folder binding is a problem: the closing line says so and the exit is 1", async () => {
+  const d = deps({
+    hasCredential: () => true,
+    // A work tree with an origin, so alignment is attempted…
+    git: async () => ({ code: 0, stdout: "" }),
+    // …and refused (--workspace names no workspace of this account).
+    folderAlign: async () => 1,
+  });
+  assert.equal(await runSetupCommand({ workspace: "windows-probe" }, d), 1);
+  const out = d.out.join("\n");
+  assert.match(out, /note: folder alignment did not complete/);
+  assert.match(
+    out,
+    /Finished with 1 problem\(s\) — see the note lines above\. Verify with: jentrix whoami/,
+  );
+  assert.ok(!/Done\./.test(out));
+});
+
+test("a binding SKIPPED for want of a credential is not a problem: exit 0", async () => {
+  // The Setup page's prompt relies on this: with no credential the installer
+  // cannot bind, says so, exits 0, and the prompt binds in a later step.
+  const d = deps({
+    hasCredential: () => false,
+    git: async () => ({ code: 0, stdout: "" }),
+    folderAlign: async () => {
+      throw new Error("must not be attempted without a credential");
+    },
+  });
+  assert.equal(await runSetupCommand({}, d), 0);
+  const out = d.out.join("\n");
+  assert.match(out, /skipped folder alignment \(no credential yet\)/);
+  assert.match(out, /Done\. Verify with: jentrix whoami/);
 });
 
 test("it connects when no credential exists, passing the flags through", async () => {

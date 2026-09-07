@@ -24,6 +24,8 @@
  * path (a failed `list_workspaces` must not surface the Authorization header).
  */
 
+import { posix, win32 } from "node:path";
+
 import { Command } from "commander";
 
 import { callTool, type ToolCaller } from "../call";
@@ -83,6 +85,13 @@ export interface WhoamiReport {
   /** Redacted display, e.g. "tm_…a1b2" — NEVER the full token. */
   tokenDisplay: string;
   tokenSource: ResolvedConfig["tokenSource"];
+  /**
+   * WHICH config file this invocation resolved (JEN-467): the folder-local
+   * `.stacks/config.json` found walking up from cwd, or the machine-wide home
+   * file. Null only when the caller did not say where it looked.
+   */
+  configPath: string | null;
+  configScope: "folder" | "machine" | null;
   workspaces: WorkspaceRow[];
   /** The token's introspected context (M19.1 R8), or null if unavailable. */
   tokenContext: TokenContextReport | null;
@@ -144,26 +153,62 @@ function workspacesFromResult(result: unknown): WorkspaceRow[] {
   return list.filter(isWorkspaceRow);
 }
 
+/**
+ * WHICH config file, for the report (JEN-467): the same label read as "config
+ * file" for the folder-local `.stacks/config.json` and for the home file,
+ * and the operator could only tell them apart by running the command from
+ * another directory. Folder-local is shown relative to cwd when it lives
+ * under it (a walk-up hit above cwd shows its full path); the machine file
+ * is `~/…` on POSIX and the real path on win32, where `~` is not a shell
+ * notion. Never the file's contents. Exported for tests; `win` is only
+ * overridden there.
+ */
+export function describeConfigFile(
+  configPath: string,
+  cwd: string,
+  homedir: string,
+  win = process.platform === "win32",
+): { configScope: "folder" | "machine"; label: string } {
+  const P = win ? win32 : posix;
+  if (configPath === P.join(homedir, ".config", "stacks", "config.json")) {
+    const shown = win
+      ? configPath
+      : `~${P.sep}${P.relative(homedir, configPath)}`;
+    return { configScope: "machine", label: `machine config ${shown}` };
+  }
+  const rel = P.relative(cwd, configPath);
+  const under = rel !== "" && !rel.startsWith("..") && !P.isAbsolute(rel);
+  return {
+    configScope: "folder",
+    label: `folder config ${under ? `.${P.sep}${rel}` : configPath}`,
+  };
+}
+
 /** Human-readable source label for the config report. */
-function sourceLabel(source: ResolvedConfig["urlSource"]): string {
+function sourceLabel(
+  source: ResolvedConfig["urlSource"],
+  fileLabel: string,
+): string {
   switch (source) {
     case "flag":
       return "--url / --token flag";
     case "env":
       return "environment";
     case "file":
-      return "config file";
+      return fileLabel;
     case "default":
       return "default";
   }
 }
 
-function renderHuman(report: WhoamiReport): string {
+function renderHuman(report: WhoamiReport, fileLabel: string): string {
   const lines: string[] = [];
   lines.push("Config:");
-  lines.push(`  server:  ${report.url}  (${sourceLabel(report.urlSource)})`);
   lines.push(
-    `  token:   ${report.tokenDisplay}  (${sourceLabel(report.tokenSource)})`,
+    `  server:  ${report.url}  (${sourceLabel(report.urlSource, fileLabel)})`,
+  );
+  lines.push(
+    `  token:   ${report.tokenDisplay}  (${sourceLabel(report.tokenSource, fileLabel)})`,
   );
   lines.push("");
   if (report.workspaces.length === 0) {
@@ -362,12 +407,21 @@ export async function runWhoamiCommand(
       tokenContext = parseTokenContext(ctx.stdout);
     }
 
+    // Which file the "file" source means — only when the wiring says where
+    // it looked (main.ts does; a bare test bag may not).
+    const configPath = deps.configPath?.() ?? null;
+    const where =
+      configPath !== null && deps.cwd && deps.homeDir
+        ? describeConfigFile(configPath, deps.cwd(), deps.homeDir())
+        : null;
     const report: WhoamiReport = {
       url: config.url,
       urlSource: config.urlSource,
       tokenType,
       tokenDisplay,
       tokenSource: config.tokenSource,
+      configPath: where ? configPath : null,
+      configScope: where?.configScope ?? null,
       workspaces,
       tokenContext,
       note: WHOAMI_SCOPE_NOTE,
@@ -378,7 +432,9 @@ export async function runWhoamiCommand(
     // C4.1-R1-1) — in BOTH --json and human modes.
     deps.writeOut(
       redact(
-        flags.json === true ? stableStringify(report) : renderHuman(report),
+        flags.json === true
+          ? stableStringify(report)
+          : renderHuman(report, where?.label ?? "config file"),
       ),
     );
     return EXIT_CODES.OK;

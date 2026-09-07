@@ -89,6 +89,16 @@ export interface ToolCommandDeps {
    * server side was correct all along; the header simply was never sent.
    */
   sessionId?(): Promise<string | null>;
+  /**
+   * JEN-467 — WHERE `configFile()` looked, so `whoami` can name the file
+   * (folder-local `.stacks/config.json` versus the machine-wide home file)
+   * instead of the one label both used to share. Optional for the same reason
+   * `sessionId` is: this module owns no process edges, and a bag without them
+   * falls back to the bare "config file" wording.
+   */
+  configPath?(): string;
+  cwd?(): string;
+  homeDir?(): string;
   readStdin(): Promise<string>;
   /** Read `--args-file` content; throws when unreadable. */
   readFile(path: string): string;

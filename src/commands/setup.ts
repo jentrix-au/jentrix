@@ -69,6 +69,13 @@ export interface GlobalInstall {
   cliDir: string | null;
   /** That install's version, read from its own package.json, or null. */
   cliVersion: string | null;
+  /**
+   * The retired `@jentrix/runner` package's global directory, or null (JEN-468).
+   * Since 0.6.0 the session host ships inside this CLI; a 0.5.x upgrade
+   * leaves the old package — and its `jentrix-runner` / `stacks-runner`
+   * shims — on the machine, pointing at a package no longer published.
+   */
+  runnerDir?: string | null;
   /** npm's global bin directory — where the `jentrix` shim lands, or null. */
   binDir: string | null;
   /** Is `binDir` on PATH? `npx` only PREPENDS, so this still answers for the
@@ -174,6 +181,17 @@ export function compareVersions(a: string, b: string): number {
 
 function say(deps: SetupCommandDeps, text = ""): void {
   deps.writeOut(text);
+}
+
+/** The `version` of a package.json text, or null when unreadable. */
+function parseVersion(text: string | null): string | null {
+  if (text === null) return null;
+  try {
+    const value = (JSON.parse(text) as { version?: unknown }).version;
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -283,6 +301,26 @@ async function installToolchain(deps: SetupCommandDeps): Promise<number> {
   // package installed by operators who run workers, never a product
   // prerequisite.
 
+  // JEN-468: a 0.5.x install left the retired runner behind, its shims still
+  // on PATH and callable. Said, not removed: the pre-0.6.0 plugin's hooks
+  // call `stacks-runner session-hook`, so a session still running on the old
+  // plugin needs the shim until it exits (docs/cli-install.md, "Upgrading
+  // from 0.5.x").
+  if (global.runnerDir) {
+    const manifest = parseVersion(
+      deps.readTextFile(join(global.runnerDir, "package.json")),
+    );
+    say(deps, "");
+    say(
+      deps,
+      `note: the retired @jentrix/runner ${manifest ?? "(unreadable version)"} is still installed — remove it with`,
+    );
+    say(
+      deps,
+      "      npm rm -g @jentrix/runner  (the session host now ships inside @jentrix/cli).",
+    );
+  }
+
   // Installed is not the same as REACHABLE. Said here, at the moment it is
   // knowable, because the alternative is the operator discovering it as
   // "'jentrix' is not recognized" in a fresh terminal with nothing to connect
@@ -363,6 +401,13 @@ interface Pending {
   codexTokenUrl?: string;
   /** Providers whose plugin did not install — reported, and a non-zero exit. */
   failedPlugins: string[];
+  /**
+   * Folder alignment was ATTEMPTED and refused (JEN-465) — `--workspace`
+   * named no workspace of the signed-in account, or the picker was declined.
+   * Distinct from the no-credential skip, which is not a failure: the Setup
+   * page's prompt relies on that exit 0 and binds in a later step.
+   */
+  bindingRefused: boolean;
 }
 
 /**
@@ -629,7 +674,7 @@ export async function runSetupCommand(
   const toolchain = await installToolchain(deps);
   if (toolchain !== EXIT_CODES.OK) return toolchain;
 
-  const pending: Pending = { failedPlugins: [] };
+  const pending: Pending = { failedPlugins: [], bindingRefused: false };
   await installRuntimes(deps, pending);
 
   // The login chain lives inside `jentrix plugin install`, so a machine with
@@ -650,6 +695,14 @@ export async function runSetupCommand(
         "note: no credential is configured — run `jentrix login` (interactive) to connect.",
       );
     }
+  } else {
+    // JEN-465: the skip was silent, so a new user could not tell from the
+    // output whether sign-in had happened at all. The endpoint, never the
+    // token.
+    say(
+      deps,
+      `Signed in already (server ${deps.signedInUrl() ?? "unknown"}) — skipping the browser sign-in; \`jentrix logout\` to change it.`,
+    );
   }
 
   const targetUrl = flags.url ?? deps.signedInUrl();
@@ -688,6 +741,7 @@ export async function runSetupCommand(
         yes: !deps.isInteractive,
       });
       if (aligned !== 0) {
+        pending.bindingRefused = true;
         say(
           deps,
           "note: folder alignment did not complete — run `jentrix folder align` when ready (sessions need it).",
@@ -723,7 +777,17 @@ export async function runSetupCommand(
     }
     say(deps, "");
   }
-  say(deps, "Done. Verify with: jentrix whoami");
+  // JEN-465: "Done." above two failure notes and an exit 1 read as success
+  // to an agent told to stop on an unexpected error. The closing line agrees
+  // with the exit code.
+  const problems =
+    pending.failedPlugins.length + (pending.bindingRefused ? 1 : 0);
+  say(
+    deps,
+    problems === 0
+      ? "Done. Verify with: jentrix whoami"
+      : `Finished with ${problems} problem(s) — see the note lines above. Verify with: jentrix whoami`,
+  );
   if (pending.codexLoginUrl) {
     say(deps, "");
     say(
@@ -771,8 +835,9 @@ export async function runSetupCommand(
   );
   // Everything else succeeded, so this is not a failed install — but a script
   // that treats 0 as "the agent is ready" would be wrong, and a human who
-  // scrolled past the note deserves the second signal.
-  return pending.failedPlugins.length ? EXIT_CODES.INTERNAL : EXIT_CODES.OK;
+  // scrolled past the note deserves the second signal. A refused folder
+  // binding counts the same way: sessions need it (JEN-465).
+  return problems ? EXIT_CODES.INTERNAL : EXIT_CODES.OK;
 }
 
 export function registerSetupCommand(
