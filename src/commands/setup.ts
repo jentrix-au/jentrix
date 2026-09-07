@@ -69,6 +69,13 @@ export interface GlobalInstall {
   cliDir: string | null;
   /** That install's version, read from its own package.json, or null. */
   cliVersion: string | null;
+  /**
+   * The retired `@jentrix/runner` package's global directory, or null (JEN-468).
+   * Since 0.6.0 the session host ships inside this CLI; a 0.5.x upgrade
+   * leaves the old package — and its `jentrix-runner` / `stacks-runner`
+   * shims — on the machine, pointing at a package no longer published.
+   */
+  runnerDir?: string | null;
   /** npm's global bin directory — where the `jentrix` shim lands, or null. */
   binDir: string | null;
   /** Is `binDir` on PATH? `npx` only PREPENDS, so this still answers for the
@@ -174,6 +181,17 @@ export function compareVersions(a: string, b: string): number {
 
 function say(deps: SetupCommandDeps, text = ""): void {
   deps.writeOut(text);
+}
+
+/** The `version` of a package.json text, or null when unreadable. */
+function parseVersion(text: string | null): string | null {
+  if (text === null) return null;
+  try {
+    const value = (JSON.parse(text) as { version?: unknown }).version;
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -282,6 +300,26 @@ async function installToolchain(deps: SetupCommandDeps): Promise<number> {
   // setup installs NO @jentrix/runner. The runner remains an ops-plane worker
   // package installed by operators who run workers, never a product
   // prerequisite.
+
+  // JEN-468: a 0.5.x install left the retired runner behind, its shims still
+  // on PATH and callable. Said, not removed: the pre-0.6.0 plugin's hooks
+  // call `stacks-runner session-hook`, so a session still running on the old
+  // plugin needs the shim until it exits (docs/cli-install.md, "Upgrading
+  // from 0.5.x").
+  if (global.runnerDir) {
+    const manifest = parseVersion(
+      deps.readTextFile(join(global.runnerDir, "package.json")),
+    );
+    say(deps, "");
+    say(
+      deps,
+      `note: the retired @jentrix/runner ${manifest ?? "(unreadable version)"} is still installed — remove it with`,
+    );
+    say(
+      deps,
+      "      npm rm -g @jentrix/runner  (the session host now ships inside @jentrix/cli).",
+    );
+  }
 
   // Installed is not the same as REACHABLE. Said here, at the moment it is
   // knowable, because the alternative is the operator discovering it as

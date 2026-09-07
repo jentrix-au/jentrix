@@ -251,6 +251,39 @@ test("setup never installs @jentrix/runner (v2: the host ships in the CLI)", asy
   );
 });
 
+test("a retired @jentrix/runner left by a 0.5.x install is NAMED with the removal command (JEN-468)", async () => {
+  // Windows probe, 2026-09-07: after 0.5.19 → 0.8.2 the `jentrix-runner` and
+  // `stacks-runner` shim trios from @jentrix/runner 0.5.x were still on PATH,
+  // pointing at a package that is no longer published.
+  const RUNNER = "/usr/lib/node_modules/@jentrix/runner";
+  const d = deps({
+    globalInstall: async () => ({
+      cliDir: "/usr/lib/node_modules/@jentrix/cli",
+      cliVersion: CLI_VERSION,
+      runnerDir: RUNNER,
+      binDir: "/usr/bin",
+      binDirOnPath: true,
+      runningFromGlobal: false,
+    }),
+    readTextFile: (path) =>
+      path === `${RUNNER}/package.json`
+        ? '{"name":"@jentrix/runner","version":"0.5.19"}'
+        : null,
+  });
+  assert.equal(await runSetupCommand({}, d), 0);
+  const out = d.out.join("\n");
+  assert.match(
+    out,
+    /note: the retired @jentrix\/runner 0\.5\.19 is still installed — remove it with\n {6}npm rm -g @jentrix\/runner {2}\(the session host now ships inside @jentrix\/cli\)\./,
+  );
+  // Said, never removed: no npm rm of the runner.
+  assert.ok(!npmArgs(d).some((a) => a.includes("@jentrix/runner")));
+  // A machine without the old package hears nothing about it.
+  const clean = deps();
+  await runSetupCommand({}, clean);
+  assert.ok(!/@jentrix\/runner/.test(clean.out.join("\n")));
+});
+
 test("it registers the plugin for each runtime present and notes each absent one", async () => {
   const d = deps({ resolveCodex: async () => null });
   assert.equal(await runSetupCommand({}, d), 0);
