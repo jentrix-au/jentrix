@@ -338,6 +338,93 @@ describe("clientChecks — an in-memory npm-global install", () => {
     );
   });
 
+  // JEN-466 — the codex marketplace row printed `Unknown: … exited 0: {`
+  // (the first line of a pretty-printed catalog with no `jentrix` row) on
+  // the Windows box, and `Unregistered` for a row Codex had left unlabeled.
+  it("codex marketplace: the four listing states carry their evidence, and an unlabeled row is read by its root", async () => {
+    const withListing = (listing: PluginInvocation) => ({
+      ...client,
+      resolveCodex: async () => "/usr/local/bin/codex",
+      invoke: async (file: string, args: string[]) =>
+        args.join(" ") === "plugin marketplace list --json"
+          ? file === "/usr/local/bin/codex"
+            ? listing
+            : ok(
+                JSON.stringify([
+                  { name: "jentrix", source: "directory", path: CLAUDE },
+                ]),
+              )
+          : ok("{}"),
+    });
+    const codexRow = async (listing: PluginInvocation) => {
+      const checks = await clientChecks({
+        client: withListing(listing),
+        resolveTarget: () => {
+          throw new Error("no token");
+        },
+      });
+      return checks.find((c) => c.name === "marketplace codex")!;
+    };
+
+    const exited = await codexRow({
+      code: 1,
+      stdout: "",
+      stderr: "boom\nsecond line",
+    });
+    assert.equal(exited.status, "warn");
+    assert.equal(
+      exited.detail,
+      'Unknown: `codex plugin marketplace list --json` exited 1: "boom\\nsecond line"',
+    );
+
+    const notJson = await codexRow(ok('warning: x\n{"marketplaces":[]}'));
+    assert.equal(notJson.status, "warn");
+    assert.equal(
+      notJson.detail,
+      'Unknown: `codex plugin marketplace list --json` exited 0 but printed no JSON catalog — first 200 bytes: "warning: x\\n{\\"marketplaces\\":[]}"',
+    );
+
+    const noRow = await codexRow(
+      ok(JSON.stringify({ marketplaces: [{ name: "acme", root: "/x" }] })),
+    );
+    assert.equal(noRow.status, "warn");
+    assert.equal(
+      noRow.detail,
+      'Unregistered: `codex plugin marketplace list --json` lists no "jentrix" marketplace (present: acme)',
+    );
+    assert.equal(noRow.fix, "jentrix plugin install codex");
+
+    const git = await codexRow(
+      ok(
+        JSON.stringify({
+          marketplaces: [
+            {
+              name: "jentrix",
+              root: "/home/u/.codex/.tmp/marketplaces/jentrix",
+              marketplaceSource: { sourceType: "git", source: "https://x/y" },
+            },
+          ],
+        }),
+      ),
+    );
+    assert.equal(git.status, "warn");
+    assert.match(
+      git.detail,
+      /^User-managed: `codex plugin marketplace list --json` lists "jentrix" at a non-local source — marketplaceSource: \{"sourceType":"git","source":"https:\/\/x\/y"\}, root: \/home\/u\/\.codex\/\.tmp\/marketplaces\/jentrix; not written by this CLI/,
+    );
+
+    // Codex reported no source for the row (the Windows shape): its root is
+    // this package, so the row is official — and says how it was read.
+    const unlabeled = await codexRow(
+      ok(JSON.stringify({ marketplaces: [{ name: "jentrix", root: CODEX }] })),
+    );
+    assert.equal(unlabeled.status, "ok");
+    assert.equal(
+      unlabeled.detail,
+      `Official: jentrix → ${CODEX} (its root; Codex reported no source for the row)`,
+    );
+  });
+
   it("without probes the doctor's list is untouched; without an endpoint the contract is skipped", async () => {
     assert.deepEqual(
       await clientChecks({ resolveTarget: () => ({ token: "", url: "" }) }),

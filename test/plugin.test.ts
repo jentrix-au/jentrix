@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { CLI_VERSION } from "../src/client";
@@ -9,8 +10,10 @@ import {
   isOwnInstalledPluginPath,
   isOwnStalePluginPath,
   persistentPluginRoot,
+  readCodexListing,
   runPluginInstall,
   samePluginPath,
+  stripVerbatimPrefix,
   type PluginCommandDeps,
   type PluginInvocation,
 } from "../src/commands/plugin";
@@ -1574,6 +1577,206 @@ describe("Codex: a dangling row of ours that breaks the listing itself (open-cli
       danglingCodexMarketplace({ code: 1, stdout: "", stderr: "boom" }),
       null,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JEN-466 — Codex on Windows (probe of 2026-09-07, Codex 0.149.0). Two
+// failures of ONE listing: the activation proof read the fresh `jentrix` row
+// as "at a non-local source" because Codex had omitted `marketplaceSource`
+// (it canonicalises a `marketplace add <dir>` to `\\?\C:\…`, keys its sources
+// by that string and looks them up by the normalised path — a miss), and the
+// restore of the OLD row re-added the verbatim `\\?\…` path Codex had
+// reported, which Codex refused. Neither message showed the bytes.
+// ---------------------------------------------------------------------------
+describe("Codex on Windows: verbatim paths, unlabeled rows, and the evidence (JEN-466)", () => {
+  const fixture = (name: string) =>
+    readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+
+  it("strips the \\\\?\\ and \\\\?\\UNC\\ prefixes, and nothing else", () => {
+    assert.equal(stripVerbatimPrefix("\\\\?\\C:\\a\\b"), "C:\\a\\b");
+    assert.equal(
+      stripVerbatimPrefix("\\\\?\\UNC\\srv\\share\\cli"),
+      "\\\\srv\\share\\cli",
+    );
+    assert.equal(stripVerbatimPrefix("C:\\a\\b"), "C:\\a\\b");
+    assert.equal(stripVerbatimPrefix("/usr/lib/x"), "/usr/lib/x");
+  });
+
+  it("a restore hands Codex the BARE path, never the verbatim one it reported", async () => {
+    const stale =
+      "\\\\?\\C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@jentrix\\cli\\codex-plugin";
+    const bare =
+      "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@jentrix\\cli\\codex-plugin";
+    const { deps, calls, err } = makeDeps(
+      {},
+      {
+        "plugin marketplace list --json": [
+          codexCatalog(stale),
+          codexCatalog(CODEX_PLUGIN_DIR),
+        ],
+        "plugin add jentrix@jentrix --json": {
+          code: 1,
+          stdout: "",
+          stderr: "boom",
+        },
+      },
+    );
+    assert.equal(await runPluginInstall(deps, "codex"), 1);
+    const argv = calls.map((c) => c.args.join(" "));
+    assert.equal(argv.at(-1), `plugin marketplace add ${bare} --json`);
+    assert.ok(!argv.some((line) => line.includes("\\\\?\\")), argv.join("\n"));
+    assert.ok(
+      err.some((l) =>
+        l.includes(`previous registration at ${bare} was restored`),
+      ),
+      err.join("\n"),
+    );
+  });
+
+  it("activation-proof failures show the listing's evidence — four states", async () => {
+    const cases: Array<[PluginInvocation, RegExp]> = [
+      [
+        { code: 1, stdout: "", stderr: "boom\nsecond line" },
+        /activation not proven — `codex plugin marketplace list --json` exited 1: "boom\\nsecond line", expected/,
+      ],
+      [
+        { code: 0, stdout: 'warning: x\n{"marketplaces":[]}', stderr: "" },
+        /exited 0 but printed no JSON catalog — first 200 bytes: "warning: x\\n\{\\"marketplaces\\":\[\]\}", expected/,
+      ],
+      [
+        codexCatalog(null),
+        /lists no "jentrix" marketplace \(present: none\), expected/,
+      ],
+      [
+        {
+          code: 0,
+          stdout: JSON.stringify({
+            marketplaces: [
+              {
+                name: "jentrix",
+                root: "/home/u/.codex/.tmp/marketplaces/jentrix",
+                marketplaceSource: { sourceType: "git", source: "https://x/y" },
+              },
+            ],
+          }),
+          stderr: "",
+        },
+        /lists "jentrix" at a non-local source — marketplaceSource: \{"sourceType":"git","source":"https:\/\/x\/y"\}, root: \/home\/u\/\.codex\/\.tmp\/marketplaces\/jentrix, expected/,
+      ],
+    ];
+    for (const [after, expected] of cases) {
+      const { deps, err } = makeDeps(
+        {},
+        {
+          "plugin marketplace list --json": [codexCatalog(null), after],
+          "plugin list --json": CODEX_INSTALLED,
+        },
+      );
+      assert.equal(await runPluginInstall(deps, "codex"), 1, err.join("\n"));
+      assert.ok(
+        err.some((l) => expected.test(l)),
+        `${expected}\n${err.join("\n")}`,
+      );
+    }
+  });
+
+  it("macOS 0.153.4, as captured: the jentrix row is local and labeled, and the SAME document carries a root-only row", () => {
+    // test/fixtures/codex-marketplace-list-0.153.4-macos.json — the bytes
+    // `codex plugin marketplace list --json` printed on the round's Mac, with
+    // only the home directory replaced by /home/u. `openai-curated` there has
+    // `name` + `root` and NO `marketplaceSource`: the shape the Windows box
+    // reports for OUR row is one Codex produces whenever its source lookup
+    // misses, not an invention of the probe.
+    const stdout = fixture("codex-marketplace-list-0.153.4-macos.json");
+    const read = readCodexListing({ code: 0, stdout, stderr: "" });
+    assert.deepEqual(read, {
+      state: "local",
+      local:
+        "/home/u/.nvm/versions/node/v22.22.0/lib/node_modules/@jentrix/cli/node_modules/@jentrix/plugin-codex",
+      unlabeled: false,
+      why: "",
+    });
+    const rows = (
+      JSON.parse(stdout) as { marketplaces: Array<Record<string, unknown>> }
+    ).marketplaces;
+    const rootOnly = rows.filter((r) => !("marketplaceSource" in r));
+    assert.deepEqual(
+      rootOnly.map((r) => r.name),
+      ["openai-curated"],
+    );
+    assert.equal(typeof rootOnly[0]!.root, "string");
+  });
+
+  it("Windows: a jentrix row with root and no marketplaceSource IS our directory — read, installed and proven without a conflict", async () => {
+    // test/fixtures/codex-marketplace-list-windows-unlabeled.json — the box's
+    // shape as read off the Codex source (JEN-466 card, 2026-09-07): every
+    // local row unlabeled, `root` the normalised directory. Derived, not
+    // captured: the raw bytes from the box are still wanted for the record.
+    const stdout = fixture("codex-marketplace-list-windows-unlabeled.json");
+    const WIN_DIR =
+      "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@jentrix\\cli\\node_modules\\@jentrix\\plugin-codex";
+    assert.deepEqual(readCodexListing({ code: 0, stdout, stderr: "" }), {
+      state: "local",
+      local: WIN_DIR,
+      unlabeled: true,
+      why: "",
+    });
+    // The installer, resolving the plugin at that directory: the row is
+    // ours, so no add, no remove, no conflict — and the proof passes.
+    const { deps, calls, out, err, files } = makeDeps(
+      { resolveCodexPluginDir: () => WIN_DIR },
+      {
+        "plugin marketplace list --json": { code: 0, stdout, stderr: "" },
+        "plugin list --json": CODEX_INSTALLED,
+      },
+    );
+    for (const [suffix, text] of [
+      ["package.json", '{"name":"@jentrix/plugin-codex","version":"0.2.8"}'],
+      [
+        ".agents/plugins/marketplace.json",
+        '{"name":"jentrix","plugins":[{"name":"jentrix"}]}',
+      ],
+      [
+        "plugins/jentrix/.codex-plugin/plugin.json",
+        '{"name":"jentrix","version":"0.2.8"}',
+      ],
+    ]) {
+      files.set(`${WIN_DIR}/${suffix}`, text);
+    }
+    files.set(hookFilePath("codex", WIN_DIR), shippedHooks("codex"));
+    assert.equal(await runPluginInstall(deps, "codex"), 0, err.join("\n"));
+    const argv = calls.map((c) => c.args.join(" "));
+    // No add and no removal of OUR row (the legacy `stacks` marketplace is
+    // still retired at the end, as on every install).
+    assert.ok(!argv.some((line) => line.startsWith("plugin marketplace add")));
+    assert.ok(!argv.includes("plugin marketplace remove jentrix"));
+    assert.ok(!err.some((l) => /PLUGIN_MARKETPLACE_CONFLICT/.test(l)));
+    assert.ok(
+      out.some((l) =>
+        l.includes(`Marketplace "jentrix" already registered (${WIN_DIR}).`),
+      ),
+      out.join("\n"),
+    );
+    assert.ok(out.some((l) => l.includes("$jentrix-align")));
+  });
+
+  it("a git-sourced row never falls back to its root — that is a cache directory, not ours", () => {
+    const read = readCodexListing({
+      code: 0,
+      stdout: JSON.stringify({
+        marketplaces: [
+          {
+            name: "jentrix",
+            root: CODEX_PLUGIN_DIR,
+            marketplaceSource: { sourceType: "git", source: "https://x/y" },
+          },
+        ],
+      }),
+      stderr: "",
+    });
+    assert.equal(read.state, "non-local");
+    assert.equal(read.local, null);
   });
 });
 

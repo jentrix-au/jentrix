@@ -199,8 +199,17 @@ export function isPluginMarketplaceDir(dir: string): boolean {
  * 0.5.18 Windows first run). Strip the verbatim prefix, resolve with win32
  * semantics, case-fold. Exported for tests; `win` is only overridden there.
  */
+/**
+ * Strip the `\\?\` / `\\?\UNC\` verbatim prefix Codex reports on Windows
+ * (Rust's `fs::canonicalize`) — a form Codex itself then refuses on
+ * `marketplace add` (JEN-466: restoring a `\\?\C:\…\codex-plugin` row exited 1).
+ */
+export function stripVerbatimPrefix(raw: string): string {
+  return raw.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "");
+}
+
 function normalizePluginPath(raw: string, win: boolean): string {
-  const bare = raw.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "");
+  const bare = stripVerbatimPrefix(raw);
   const abs = win ? win32.resolve(bare) : resolve(bare);
   return win ? abs.toLowerCase() : abs;
 }
@@ -584,6 +593,9 @@ async function restorePrevious(
   previous: string | null,
 ): Promise<string> {
   if (previous === null) return "";
+  // `previous` is what the provider REPORTED — on Windows, Codex's own
+  // `\\?\C:\…` canonical form, which Codex refuses to take back (JEN-466).
+  const bare = stripVerbatimPrefix(previous);
   await deps.invoke(executable, [
     "plugin",
     "marketplace",
@@ -594,51 +606,136 @@ async function restorePrevious(
     "plugin",
     "marketplace",
     "add",
-    previous,
+    bare,
     ...(provider === "codex" ? ["--json"] : []),
   ]);
   return readd.code === 0
-    ? ` — the previous registration at ${previous} was restored`
-    : ` — the previous registration at ${previous} could NOT be restored (\`${provider} plugin marketplace add ${previous}\` exited ${readd.code}); run it by hand`;
+    ? ` — the previous registration at ${bare} was restored`
+    : ` — the previous registration at ${bare} could NOT be restored (\`${provider} plugin marketplace add ${bare}\` exited ${readd.code}); run it by hand`;
 }
 
 /**
- * The `jentrix` row of a `codex plugin marketplace list --json` document:
- * null when there is none, else its local directory (null for a non-local
- * source). Exported for the doctor, which reads the same listing.
+ * What a provider's `plugin marketplace list --json` says about the `jentrix`
+ * row, WITH the evidence when it names no local directory. Two Windows
+ * failures of one listing (JEN-466) each surfaced as a one-bit message —
+ * "at a non-local source" from the installer, "{" from the doctor — so
+ * `state` tells apart a listing that exited non-zero (code + stderr head),
+ * one that printed no JSON catalog (its first 200 bytes, control characters
+ * visible), a catalog with no `jentrix` row (the names present) and a row at
+ * a non-local source (its source, verbatim). `why` is that evidence, phrased
+ * to follow the command name; empty when `local` is set.
  */
-export function parseCodexMarketplaceRow(
-  stdout: string,
-): { path: string | null } | null {
-  const catalog = parseJsonObject(stdout);
-  if (!catalog) return null;
-  const marketplaces = Array.isArray(catalog.marketplaces)
-    ? (catalog.marketplaces as Array<Record<string, unknown>>)
-    : [];
-  const existing = marketplaces.find((row) => row.name === MARKETPLACE_NAME);
-  if (!existing) return null;
-  const source = existing.marketplaceSource as
-    { sourceType?: unknown; source?: unknown } | undefined;
-  return {
-    path:
-      source?.sourceType === "local" && typeof source.source === "string"
-        ? source.source
-        : null,
-  };
+export interface MarketplaceListing {
+  state: "exited" | "not-json" | "no-row" | "non-local" | "local";
+  local: string | null;
+  /** `local` is the row's `root`: Codex reported no source for the row. */
+  unlabeled: boolean;
+  why: string;
 }
 
-/** The `jentrix` row's local source of a Codex marketplace listing. */
-function codexRowSource(listing: PluginInvocation): {
-  supported: boolean;
-  row: boolean;
-  local: string | null;
-} {
-  if (listing.code !== 0 || !parseJsonObject(listing.stdout)) {
-    return { supported: false, row: false, local: null };
+/** The first 200 bytes of a subprocess stream, control characters visible. */
+function head(text: string): string {
+  return JSON.stringify(text.slice(0, 200));
+}
+
+function unproven(
+  state: Exclude<MarketplaceListing["state"], "local">,
+  why: string,
+): MarketplaceListing {
+  return { state, local: null, unlabeled: false, why };
+}
+
+function marketplaceNames(rows: Array<Record<string, unknown>>): string {
+  const names = rows.map((r) => (typeof r.name === "string" ? r.name : "?"));
+  return names.length ? names.join(", ") : "none";
+}
+
+export function readCodexListing(
+  listing: PluginInvocation,
+): MarketplaceListing {
+  if (listing.code !== 0) {
+    return unproven(
+      "exited",
+      `exited ${listing.code}: ${head(listing.stderr || listing.stdout)}`,
+    );
   }
-  const row = parseCodexMarketplaceRow(listing.stdout);
-  if (!row) return { supported: true, row: false, local: null };
-  return { supported: true, row: true, local: row.path };
+  const catalog = parseJsonObject(listing.stdout);
+  if (!catalog) {
+    return unproven(
+      "not-json",
+      `exited 0 but printed no JSON catalog — first 200 bytes: ${head(listing.stdout)}`,
+    );
+  }
+  const rows = Array.isArray(catalog.marketplaces)
+    ? (catalog.marketplaces as Array<Record<string, unknown>>)
+    : [];
+  const row = rows.find((r) => r.name === MARKETPLACE_NAME);
+  if (!row) {
+    return unproven(
+      "no-row",
+      `lists no "${MARKETPLACE_NAME}" marketplace (present: ${marketplaceNames(rows)})`,
+    );
+  }
+  const source = row.marketplaceSource as
+    { sourceType?: unknown; source?: unknown } | undefined;
+  if (source?.sourceType === "local" && typeof source.source === "string") {
+    return { state: "local", local: source.source, unlabeled: false, why: "" };
+  }
+  // Codex on Windows canonicalises `marketplace add <dir>` to a `\\?\C:\…`
+  // path, keys its configured sources by that string and looks them up by
+  // the normalised path — a miss, so `marketplaceSource` is OMITTED for every
+  // local marketplace there while `root`, the normalised directory, survives
+  // (openai/codex core-plugins, identical at 0.149.0 and 0.153.4). An absent
+  // source falls back to `root`; an explicit non-local one (git) never does —
+  // its root is a cache directory, not ours.
+  if (source === undefined && typeof row.root === "string") {
+    return { state: "local", local: row.root, unlabeled: true, why: "" };
+  }
+  return unproven(
+    "non-local",
+    `lists "${MARKETPLACE_NAME}" at a non-local source — marketplaceSource: ${JSON.stringify(source ?? null)}${typeof row.root === "string" ? `, root: ${row.root}` : ""}`,
+  );
+}
+
+/** The Claude Code twin: a JSON ARRAY of rows with `source` + `path`. */
+export function readClaudeListing(
+  listing: PluginInvocation,
+): MarketplaceListing {
+  if (listing.code !== 0) {
+    return unproven(
+      "exited",
+      `exited ${listing.code}: ${head(listing.stderr || listing.stdout)}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(listing.stdout);
+  } catch {
+    parsed = undefined;
+  }
+  if (!Array.isArray(parsed)) {
+    return unproven(
+      "not-json",
+      `exited 0 but printed no JSON catalog — first 200 bytes: ${head(listing.stdout)}`,
+    );
+  }
+  const rows = parsed.filter(
+    (r): r is Record<string, unknown> => typeof r === "object" && r !== null,
+  );
+  const row = rows.find((r) => r.name === MARKETPLACE_NAME);
+  if (!row) {
+    return unproven(
+      "no-row",
+      `lists no "${MARKETPLACE_NAME}" marketplace (present: ${marketplaceNames(rows)})`,
+    );
+  }
+  if (typeof row.path === "string") {
+    return { state: "local", local: row.path, unlabeled: false, why: "" };
+  }
+  return unproven(
+    "non-local",
+    `lists "${MARKETPLACE_NAME}" at a non-local source — source: ${JSON.stringify(row.source ?? null)}${typeof row.repo === "string" ? `, repo: ${row.repo}` : ""}`,
+  );
 }
 
 /**
@@ -707,8 +804,8 @@ async function installCodexPlugin(
       return relayFailure(deps, "codex plugin marketplace list --json", listed);
     }
   }
-  const existing = codexRowSource(listed);
-  if (existing.row) {
+  const existing = readCodexListing(listed);
+  if (existing.state === "local" || existing.state === "non-local") {
     const local = existing.local;
     if (local === null || !samePluginPath(local, pluginDir)) {
       // W3/C3.3 — a row pointing at an installed copy of our packages is
@@ -752,7 +849,7 @@ async function installCodexPlugin(
         );
       } else {
         deps.writeErr(
-          `PLUGIN_MARKETPLACE_CONFLICT: Codex marketplace "${MARKETPLACE_NAME}" points at ${local ?? "a non-local source"}, which this install did not write — inspect with \`codex plugin marketplace list\`; if that registration is stale, run \`codex plugin marketplace remove ${MARKETPLACE_NAME}\` and retry`,
+          `PLUGIN_MARKETPLACE_CONFLICT: ${local !== null ? `Codex marketplace "${MARKETPLACE_NAME}" points at ${local}` : `\`codex plugin marketplace list --json\` ${existing.why}`}, which this install did not write — inspect with \`codex plugin marketplace list\`; if that registration is stale, run \`codex plugin marketplace remove ${MARKETPLACE_NAME}\` and retry`,
         );
         return EXIT_CODES.INVALID_INPUT;
       }
@@ -792,15 +889,16 @@ async function installCodexPlugin(
   // ACTIVATION PROOF (open-client S3): the marketplace row must now name the
   // directory we registered, and the plugin must be installed from it. A
   // swap that cannot prove this is undone, not reported as done.
-  const after = codexRowSource(
+  const after = readCodexListing(
     await deps.invoke(codex, ["plugin", "marketplace", "list", "--json"]),
   );
-  if (
-    after.supported &&
-    (after.local === null || !samePluginPath(after.local, pluginDir))
-  ) {
+  if (after.local === null || !samePluginPath(after.local, pluginDir)) {
+    // Four states, with the evidence (JEN-466): the one-bit "at a non-local
+    // source" had covered a failed listing, a non-JSON one, a missing row and
+    // a row Codex left unlabeled alike — and a listing that failed outright
+    // used to skip the proof, not fail it.
     deps.writeErr(
-      `PLUGIN_INSTALL_FAILED: activation not proven — \`codex plugin marketplace list --json\` shows "${MARKETPLACE_NAME}" at ${after.local ?? "a non-local source"}, expected ${pluginDir}${await restorePrevious(deps, codex, "codex", previous)}`,
+      `PLUGIN_INSTALL_FAILED: activation not proven — \`codex plugin marketplace list --json\` ${after.local === null ? after.why : `lists "${MARKETPLACE_NAME}" at ${after.local}`}, expected ${pluginDir}${await restorePrevious(deps, codex, "codex", previous)}`,
     );
     return EXIT_CODES.INTERNAL;
   }

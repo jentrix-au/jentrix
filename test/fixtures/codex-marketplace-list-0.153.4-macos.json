@@ -1,0 +1,88 @@
+{
+  "marketplaces": [
+    {
+      "name": "openai-primary-runtime",
+      "root": "/home/u/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime",
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "/home/u/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+      }
+    },
+    {
+      "name": "gitkraken",
+      "root": "/home/u/.claude/plugins/marketplaces/gitkraken",
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "/home/u/.claude/plugins/marketplaces/gitkraken"
+      }
+    },
+    {
+      "name": "openai-bundled",
+      "root": "/home/u/.codex/.tmp/bundled-marketplaces/openai-bundled",
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "/home/u/.codex/.tmp/bundled-marketplaces/openai-bundled"
+      }
+    },
+    {
+      "name": "agricidaniel-claude-obsidian",
+      "root": "/home/u/.codex/.tmp/marketplaces/agricidaniel-claude-obsidian",
+      "marketplaceSource": {
+        "sourceType": "git",
+        "source": "https://github.com/AgriciDaniel/claude-obsidian.git"
+      }
+    },
+    {
+      "name": "anthropic-agent-skills",
+      "root": "/home/u/.codex/.tmp/marketplaces/anthropic-agent-skills",
+      "marketplaceSource": {
+        "sourceType": "git",
+        "source": "https://github.com/anthropics/skills.git"
+      }
+    },
+    {
+      "name": "claude-plugins-official",
+      "root": "/home/u/.codex/.tmp/marketplaces/claude-plugins-official",
+      "marketplaceSource": {
+        "sourceType": "git",
+        "source": "https://github.com/anthropics/claude-plugins-official.git"
+      }
+    },
+    {
+      "name": "openai-codex",
+      "root": "/home/u/.codex/.tmp/marketplaces/openai-codex",
+      "marketplaceSource": {
+        "sourceType": "git",
+        "source": "https://github.com/openai/codex-plugin-cc.git"
+      }
+    },
+    {
+      "name": "ponytail",
+      "root": "/home/u/.codex/.tmp/marketplaces/ponytail",
+      "marketplaceSource": {
+        "sourceType": "git",
+        "source": "https://github.com/DietrichGebert/ponytail.git"
+      }
+    },
+    {
+      "name": "openai-curated",
+      "root": "/home/u/.codex/.tmp/plugins"
+    },
+    {
+      "name": "claude-cowork",
+      "root": "/home/u/.codex/plugins/cache/claude-cowork",
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "/home/u/.codex/plugins/cache/claude-cowork"
+      }
+    },
+    {
+      "name": "jentrix",
+      "root": "/home/u/.nvm/versions/node/v22.22.0/lib/node_modules/@jentrix/cli/node_modules/@jentrix/plugin-codex",
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "/home/u/.nvm/versions/node/v22.22.0/lib/node_modules/@jentrix/cli/node_modules/@jentrix/plugin-codex"
+      }
+    }
+  ]
+}

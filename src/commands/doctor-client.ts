@@ -17,8 +17,8 @@ import { createSessionRedactor } from "../session-host/session-redact";
 import {
   hookFilePath,
   isOwnInstalledPluginPath,
-  parseClaudeMarketplaceRow,
-  parseCodexMarketplaceRow,
+  readClaudeListing,
+  readCodexListing,
   samePluginPath,
   type PluginInvocation,
   type PluginPathProbe,
@@ -425,18 +425,27 @@ export async function clientChecks(
       "list",
       "--json",
     ]);
-    const registered =
-      listed.code !== 0
-        ? undefined
-        : provider === "codex"
-          ? parseCodexMarketplaceRow(listed.stdout)
-          : parseClaudeMarketplaceRow(listed.stdout);
-    const row = registered === undefined ? undefined : registered?.path;
-    const ownership = classifyMarketplace(
-      row === undefined ? undefined : (row ?? null),
-      pluginDir,
-      client,
-    );
+    // Four states with the evidence (JEN-466). The fallback used to print
+    // the first line of the listing — "{" for a pretty-printed catalog with
+    // no `jentrix` row — and a row Codex had left unlabeled read as
+    // "Unregistered". Ownership still keys on the SOURCE: a row that names
+    // none falls back to its `root`, a git row never does.
+    const read =
+      provider === "codex"
+        ? readCodexListing(listed)
+        : readClaudeListing(listed);
+    const command = `\`${provider} plugin marketplace list --json\``;
+    const row = read.local;
+    const ownership =
+      read.state === "non-local"
+        ? "user-managed"
+        : classifyMarketplace(
+            read.state === "exited" || read.state === "not-json"
+              ? undefined
+              : row,
+            pluginDir,
+            client,
+          );
     const label = {
       official: "Official",
       "official-stale": "Official (stale copy)",
@@ -449,7 +458,7 @@ export async function clientChecks(
         ? {
             name: `marketplace ${provider}`,
             status: "ok",
-            detail: `${label}: jentrix → ${row}`,
+            detail: `${label}: jentrix → ${row}${read.unlabeled ? " (its root; Codex reported no source for the row)" : ""}`,
           }
         : ownership === "official-stale"
           ? {
@@ -462,19 +471,19 @@ export async function clientChecks(
             ? {
                 name: `marketplace ${provider}`,
                 status: "warn",
-                detail: `${label}: jentrix → ${row ?? "a non-local source"} was not written by this CLI — official support stops at the API boundary; \`${provider} plugin marketplace remove jentrix\` then \`jentrix plugin install ${provider}\` returns to the official plugin`,
+                detail: `${label}: ${row !== null ? `jentrix → ${row}` : `${command} ${read.why}`}; not written by this CLI — official support stops at the API boundary; \`${provider} plugin marketplace remove jentrix\` then \`jentrix plugin install ${provider}\` returns to the official plugin`,
               }
             : ownership === "unregistered"
               ? {
                   name: `marketplace ${provider}`,
                   status: "warn",
-                  detail: `${label}: ${provider} has no jentrix marketplace`,
+                  detail: `${label}: ${command} ${read.why}`,
                   fix: `jentrix plugin install ${provider}`,
                 }
               : {
                   name: `marketplace ${provider}`,
                   status: "warn",
-                  detail: `${label}: \`${provider} plugin marketplace list --json\` exited ${listed.code}${(listed.stderr || listed.stdout).trim() ? `: ${(listed.stderr || listed.stdout).trim().split("\n")[0]}` : ""}`,
+                  detail: `${label}: ${command} ${read.why}`,
                 },
     );
 

@@ -1,0 +1,12 @@
+{
+  "marketplaces": [
+    {
+      "name": "openai-bundled",
+      "root": "C:\\Users\\u\\.codex\\.tmp\\bundled-marketplaces\\openai-bundled"
+    },
+    {
+      "name": "jentrix",
+      "root": "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@jentrix\\cli\\node_modules\\@jentrix\\plugin-codex"
+    }
+  ]
+}
