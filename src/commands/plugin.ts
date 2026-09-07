@@ -758,7 +758,7 @@ async function installCodexPlugin(
       }
     } else {
       deps.writeOut(
-        `Marketplace "${MARKETPLACE_NAME}" already points at ${pluginDir}.`,
+        `Marketplace "${MARKETPLACE_NAME}" already registered (${pluginDir}).`,
       );
     }
   } else {
@@ -1069,7 +1069,18 @@ export async function runPluginInstall(
       `Marketplace "${MARKETPLACE_NAME}" already present — refreshed.`,
     );
   } else {
-    deps.writeOut(`Marketplace "${MARKETPLACE_NAME}" added (${pluginDir}).`);
+    // JEN-465: on a Claude Code whose `marketplace add` exits 0 for a row it
+    // already has, a no-change re-run read "added" — as if it had registered
+    // something. The listing above already knew the row was right.
+    const unchanged =
+      registered !== null &&
+      registered.path !== null &&
+      samePluginPath(registered.path, pluginDir);
+    deps.writeOut(
+      unchanged
+        ? `Marketplace "${MARKETPLACE_NAME}" already registered (${pluginDir}).`
+        : `Marketplace "${MARKETPLACE_NAME}" added (${pluginDir}).`,
+    );
   }
 
   const install = await deps.invoke(claude, ["plugin", "install", PLUGIN_REF]);

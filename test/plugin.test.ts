@@ -328,6 +328,26 @@ describe("runPluginInstall", () => {
     };
   }
 
+  it("Claude: a no-change re-run whose `marketplace add` exits 0 says already registered, not added (JEN-465)", async () => {
+    // Observed on Windows (JEN-464 Part A, A8): this Claude Code exits 0 for
+    // an add of a row it already has, and the re-run read "added" as if it
+    // had registered something. The listing already knew the row was right.
+    const { deps, calls, out } = makeDeps(
+      {},
+      { "plugin marketplace list --json": claudeCatalog(PLUGIN_DIR) },
+    );
+    assert.equal(await runPluginInstall(deps), 0);
+    const argv = calls.map((c) => c.args.join(" "));
+    assert.ok(!argv.includes("plugin marketplace remove jentrix"));
+    assert.ok(
+      out.some((l) =>
+        l.includes(`Marketplace "jentrix" already registered (${PLUGIN_DIR}).`),
+      ),
+      out.join("\n"),
+    );
+    assert.ok(!out.some((l) => /"jentrix" added/.test(l)));
+  });
+
   it("Claude: a row already at THIS directory is refreshed, never removed", async () => {
     const { deps, calls, out } = makeDeps(
       {},
@@ -656,7 +676,7 @@ describe("runPluginInstall", () => {
       ),
       false,
     );
-    assert.ok(out.some((line) => line.includes("already points")));
+    assert.ok(out.some((line) => line.includes("already registered")));
   });
 
   it("refuses a conflicting Codex marketplace source", async () => {
@@ -1192,7 +1212,7 @@ describe("running `jentrix setup` twice (C3.5)", () => {
     );
     // …and nothing ever hands the CODEX registry the claude-plugin directory.
     assert.ok(!argv.some((line) => line.includes(PLUGIN_DIR)));
-    assert.ok(out.some((l) => /already points at/.test(l)));
+    assert.ok(out.some((l) => /already registered/.test(l)));
   });
 
   it("Codex: a stale row pointing at OUR claude-plugin sibling is repaired, not refused (C3.3)", async () => {
