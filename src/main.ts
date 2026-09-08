@@ -368,9 +368,9 @@ registerToolCommand(program, deps, onExit);
 registerWhoamiCommand(program, deps, onExit);
 registerLoginCommand(program, loginDeps, onExit);
 registerLogoutCommand(program, logoutDeps, onExit);
-// Client-runtime v2 Phase D: `jentrix runner` is a hidden one-window
-// delegate to the `jentrix-runner` bin — doctor/setup/up orchestration lives
-// in the runner package now (§15.7).
+// `jentrix runner` survives only as a hidden migration refusal: Ops runner
+// operations are not part of the MVP CLI, and the command exists so an old
+// invocation gets a named error instead of "unknown command".
 registerRunnerCommand(
   program,
   {

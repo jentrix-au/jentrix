@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import ts from "typescript";
@@ -49,7 +49,7 @@ test("runtime module graph has no import cycles and session registration owns no
           (statement.moduleSpecifier as ts.StringLiteral).text.endsWith(
             "commands/session",
           ) ||
-          (file.includes("/commands/") &&
+          (file.includes(`${sep}commands${sep}`) &&
             (statement.moduleSpecifier as ts.StringLiteral).text ===
               "./session")
         ) {
