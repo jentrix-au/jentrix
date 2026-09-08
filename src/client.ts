@@ -27,7 +27,7 @@ import {
 import { isUnauthorizedError } from "./errors";
 
 export const CLI_NAME = "stacks-cli";
-export const CLI_VERSION = "0.9.0";
+export const CLI_VERSION = "0.9.1";
 
 /**
  * The actionable dead-token message (stage C1.2): a bare HTTP 401 reads as a
