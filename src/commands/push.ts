@@ -17,16 +17,11 @@ import { Command } from "commander";
 import { EXIT_CODES } from "../errors";
 import { createSessionRedactor } from "../session-host/session-redact";
 import { inspectRepository } from "../repo";
-import {
-  callStructured,
-  readAlignmentMarker,
-  readCurrentProviderHookContext,
-  stacksBaseUrlOf,
-  ToolCallError,
-  UsageError,
-  withCaller,
-  type SessionCommandDeps,
-} from "./session";
+import { callStructured, ToolCallError, UsageError } from "../tool-client";
+import { readAlignmentMarker } from "../session/state";
+import { readCurrentProviderHookContext } from "../session/provider-context";
+import { stacksBaseUrlOf, withCaller } from "../session/runtime";
+import { type SessionCommandDeps } from "../session/deps";
 
 /**
  * mvp-hardening AC9/AC11 — ONE wording for "this lands on no task" (moved

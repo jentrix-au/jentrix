@@ -36,7 +36,7 @@ import {
   upsertAlignmentMarker,
   writeAlignmentMarker,
   type AlignmentMarker,
-} from "../src/commands/session";
+} from "../src/session/state";
 
 function scratch(): { configPath: string; repoRoot: string } {
   const dir = mkdtempSync(join(tmpdir(), "stacks-marker-"));
@@ -273,7 +273,12 @@ describe("marker atomicity (JEN-457)", () => {
     // tmp+rename means the marker path only ever holds a fully written file.
     const { configPath, repoRoot } = fixture();
     for (let i = 0; i < 25; i += 1) {
-      writeAlignmentMarker(configPath, repoRoot, marker(`ses_${i}`), `prov_${i}`);
+      writeAlignmentMarker(
+        configPath,
+        repoRoot,
+        marker(`ses_${i}`),
+        `prov_${i}`,
+      );
       const raw = readFileSync(
         alignmentMarkerPath(configPath, repoRoot),
         "utf8",
@@ -289,7 +294,12 @@ describe("marker atomicity (JEN-457)", () => {
   it("keeps EVERY session's entry when many are written in sequence", () => {
     const { configPath, repoRoot } = fixture();
     for (let i = 0; i < 10; i += 1) {
-      writeAlignmentMarker(configPath, repoRoot, marker(`ses_${i}`), `prov_${i}`);
+      writeAlignmentMarker(
+        configPath,
+        repoRoot,
+        marker(`ses_${i}`),
+        `prov_${i}`,
+      );
     }
     for (let i = 0; i < 10; i += 1) {
       assert.equal(
@@ -363,13 +373,23 @@ describe("marker atomicity (JEN-457)", () => {
     const kids = Array.from({ length: 8 }, (_, i) =>
       spawn(
         process.execPath,
-        ["--import", "tsx", child, configPath, repoRoot, `prov_${i}`, String(startAt)],
+        [
+          "--import",
+          "tsx",
+          child,
+          configPath,
+          repoRoot,
+          `prov_${i}`,
+          String(startAt),
+        ],
         { stdio: "ignore" },
       ),
     );
     const done = kids.map(
       (k) =>
-        new Promise<number>((resolve) => k.on("exit", (code) => resolve(code ?? 1))),
+        new Promise<number>((resolve) =>
+          k.on("exit", (code) => resolve(code ?? 1)),
+        ),
     );
     return Promise.all(done).then((codes) => {
       assert.deepEqual(

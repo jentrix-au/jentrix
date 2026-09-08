@@ -1,0 +1,20 @@
+Usage: jentrix session connect [options]
+
+Connect the CURRENT provider session (id from trusted lifecycle context) to a
+Jentrix session in the folder's workspace — identity only; `session align`
+anchors work.
+
+Options:
+  --provider <provider>     provider of the running session (choices: "claude",
+                            "codex")
+  --provider-session <id>   current provider session/thread id
+  --transcript-path <path>  trusted transcript path from the lifecycle hook
+  --import-history          import prior VISIBLE provider history via a
+                            supported surface
+  --watch                   keep capturing beside the running provider until it
+                            ends
+  --capture                 TRACE capture on for this session
+  --no-capture              TRACE capture off
+  --skeleton                activity skeleton on
+  --no-skeleton             activity skeleton off
+  -h, --help                display help for command

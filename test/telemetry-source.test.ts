@@ -6,13 +6,13 @@ import { describe, it } from "node:test";
 
 import {
   hookLedgerNamesSession,
-  runSessionStatus,
-  telemetrySourceCheck,
   telemetrySourceFact,
   telemetrySourceFor,
-  type SessionCommandDeps,
-  type SessionToolCaller,
-} from "../src/commands/session";
+} from "../src/session/provider-context";
+import { runSessionStatus } from "../src/session/status";
+import { telemetrySourceCheck } from "../src/session/doctor";
+import { type SessionCommandDeps } from "../src/session/deps";
+import { type SessionToolCaller } from "../src/tool-client";
 
 // ---------------------------------------------------------------------------
 // W2 / JEN-163 — the telemetry SOURCE is one fact with three values, and the
@@ -177,7 +177,6 @@ describe("hookLedgerNamesSession — the LEDGER decides, never a directory (C2.1
     );
   });
 });
-
 
 describe("session doctor reads the same fact (AC2.1)", () => {
   const cwd = () => "/work/api";

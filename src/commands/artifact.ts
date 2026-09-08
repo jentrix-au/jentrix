@@ -15,7 +15,7 @@ import { Command } from "commander";
 
 import { EXIT_CODES } from "../errors";
 import { ARTIFACT_TYPE_BY_PUSH_KIND, PUSH_KINDS, type PushKind } from "./push";
-import { callStructured, type SessionToolCaller } from "./session";
+import { callStructured, type SessionToolCaller } from "../tool-client";
 
 export interface ArtifactCommandDeps {
   /** Resolve {token, url} or throw ConfigError (exit 7 when no token). */

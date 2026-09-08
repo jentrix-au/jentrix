@@ -6,7 +6,7 @@ import { describe, it } from "node:test";
 
 import { Command } from "commander";
 
-import { writeAlignmentMarker } from "../src/commands/align";
+import { writeAlignmentMarker } from "../src/session/state";
 import {
   mintIssueCommandHint,
   registerMintIssueCommand,

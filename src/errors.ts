@@ -145,3 +145,25 @@ function safeStringify(value: unknown): string {
     return String(value);
   }
 }
+
+/** HTTP auth failures shared by CLI and host; MCP FORBIDDEN is separate. */
+export function isUnauthorizedError(error: unknown): boolean {
+  if (isRecord(error) && (error.code === 401 || error.status === 401))
+    return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b401\b|unauthorized|invalid_token|no authorization/i.test(message);
+}
+
+/** First text block, shared by MCP renderers and structured callers. */
+export function firstResultText(result: unknown): string | null {
+  if (!isRecord(result) || !Array.isArray(result.content)) return null;
+  for (const block of result.content) {
+    if (
+      isRecord(block) &&
+      block.type === "text" &&
+      typeof block.text === "string"
+    )
+      return block.text;
+  }
+  return null;
+}

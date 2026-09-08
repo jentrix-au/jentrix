@@ -1,0 +1,20 @@
+{
+  "claude": {
+    "connect": "description: Connect this Claude Code session to Jentrix (session anchor + capture in the folder's workspace)\nallowed-tools: Bash(jentrix session:*), Bash(jentrix folder:*)",
+    "align": "description: Align this session to a Jentrix work item (task + accountable owner) with a server-confirmed snapshot\nallowed-tools: Bash(jentrix session:*), Bash(jentrix folder:*), Bash(jentrix task:*), Bash(jentrix column:*), Bash(jentrix tool:*)",
+    "plan": "description: Turn the opening prompt into a goal and a small set of Jentrix tasks, confirmed by the operator before anything is created\nallowed-tools: Bash(jentrix task:*), Bash(jentrix column:*), Bash(jentrix board:*), Bash(jentrix session:*), Bash(jentrix push:*)",
+    "checkpoint": "description: Write a distilled state-of-play for this session and push it as a typed Jentrix artifact\nallowed-tools: Bash(jentrix push:*), Bash(jentrix session:*), Bash(jentrix task:*), Bash(jentrix column:*)",
+    "review": "description: Review a Jentrix session's typed artifacts by category (input \u2192 plan \u2192 decision \u2192 output \u2192 issue \u2192 gap \u2192 learning \u2192 record), check the readiness contract, and post the verdict as a task comment\nallowed-tools: Bash(jentrix tool:*), Bash(jentrix artifact:*), Bash(jentrix session:*), Bash(jentrix comment:*)",
+    "status": "description: Show the connected Jentrix session for this work (capture health included)\nallowed-tools: Bash(jentrix session:*)",
+    "end": "description: End the connected Jentrix session (pushes the final artifacts, verifies capture, stores the RUN_SUMMARY)\nallowed-tools: Bash(jentrix session:*), Bash(jentrix push:*), Bash(jentrix artifact:*), Bash(jentrix column:*), Bash(jentrix task:*), Bash(jentrix tool:*)"
+  },
+  "codex": {
+    "connect": "name: jentrix-connect\ndescription: Connect the current Codex task to Jentrix (session anchor + capture in the folder's workspace).",
+    "align": "name: jentrix-align\ndescription: Align the current Codex task to a Jentrix work item (task + accountable owner) with a server-confirmed snapshot.",
+    "plan": "name: jentrix-plan\ndescription: Turn the opening request into an operator-approved goal and small Jentrix task set, then store the prompt and goal as typed artifacts.",
+    "checkpoint": "name: jentrix-checkpoint\ndescription: Distill verified session state into a typed Jentrix checkpoint that survives compaction or handoff.",
+    "review": "name: jentrix-review\ndescription: Review a Jentrix session's typed artifacts by category, verify the readiness contract, and post the verdict as a comment on the aligned task.",
+    "status": "name: jentrix-status\ndescription: Show the connected Jentrix session, alignment, capture health, and honest telemetry availability for this Codex task.",
+    "end": "name: jentrix-end\ndescription: End a connected Jentrix session after preserving approved outputs, parking completed work in review, and reporting capture honestly."
+  }
+}

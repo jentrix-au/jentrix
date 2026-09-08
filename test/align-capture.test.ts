@@ -6,8 +6,11 @@ import {
   captureSubmission,
   decideCaptureMode,
   skeletonSubmission,
-} from "../src/commands/session";
-import { isHostCapturing, type LocalHostMarker } from "../src/commands/session";
+} from "../src/session/host-control";
+import {
+  isHostCapturing,
+  type LocalHostMarker,
+} from "../src/session/host-control";
 
 /**
  * AGE-956 — the capture consent contract: a re-align with no flag NEVER flips

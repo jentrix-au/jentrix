@@ -11,32 +11,18 @@
  * not part of session identity, so nothing here asks about one.
  *
  * The alias forwards the narrow flags with one rename notice and disappears
- * after the window.
+ * at the release boundary documented in docs/compatibility.md.
  */
 
 import { Command, Option } from "commander";
 
 import { EXIT_CODES } from "../errors";
+import { runSessionAlign } from "../session/alignment";
+import { addSessionAlignOptions } from "./session-options";
 import {
-  runSessionAlign,
   type SessionAlignFlags,
   type SessionCommandDeps,
-} from "./session";
-
-// The local alignment marker moved to ./session (AGE-958: `session end`
-// self-resolves through it; defining it there keeps the import graph
-// one-directional). Re-exported for existing callers.
-export {
-  alignmentMarkerPath,
-  parseAlignmentMarkerFile,
-  readAlignmentMarker,
-  removeAlignmentMarkerEntry,
-  resolveAlignmentMarker,
-  upsertAlignmentMarker,
-  writeAlignmentMarker,
-  type AlignmentMarker,
-  type AlignmentMarkerFile,
-} from "./session";
+} from "../session/deps";
 
 interface AlignAliasFlags extends SessionAlignFlags {
   /** Legacy wizard flags — accepted for the window, adapted or refused. */
@@ -51,7 +37,7 @@ export async function runAlignAlias(
   deps: SessionCommandDeps,
 ): Promise<number> {
   deps.writeErr(
-    "note: `jentrix align` is now `jentrix session align` (folder ↔ workspace binding is `jentrix folder align`) — this alias keeps working for one release window.",
+    "note: `jentrix align` is now `jentrix session align` (folder ↔ workspace binding is `jentrix folder align`) — this is a compatibility adapter; see docs/compatibility.md for its retirement boundary.",
   );
   if (flags.questions) {
     deps.writeErr(
@@ -77,29 +63,11 @@ export function registerAlignCommand(
   deps: SessionCommandDeps,
   onExit: (code: number) => void,
 ): Command {
-  return program
-    .command("align", { hidden: true })
-    .description("(renamed) — use `jentrix session align`")
-    .option("--task <id-or-key>", "the aligned work item (task id or key)")
-    .option("--session-level", 'no task — "session-level work"')
-    .option("--owner <user-id>", "accountable human owner")
-    .option("--agent <label>", "producer label for this session")
-    .option("--agent-emoji <emoji>", "emoji shown before the producer label")
-    .option("--capture", "TRACE capture on for this session")
-    .option("--no-capture", "TRACE capture off")
-    .option("--skeleton", "activity skeleton on")
-    .option("--no-skeleton", "activity skeleton off")
-    .option("--budget <tokens>", "per-session token budget", (v) => Number(v))
-    .option("--no-budget", "disarm the token budget")
-    .option("--json", "stable JSON output")
-    .addOption(
-      new Option(
-        "--provider <provider>",
-        "provider of the running session",
-      ).choices(["claude", "codex"]),
-    )
-    .addOption(new Option("--provider-session <id>", "").hideHelp())
-    .addOption(new Option("--transcript-path <path>", "").hideHelp())
+  return addSessionAlignOptions(
+    program
+      .command("align", { hidden: true })
+      .description("(renamed) — use `jentrix session align`"),
+  )
     .addOption(new Option("--project <id-or-slug>", "").hideHelp())
     .addOption(new Option("--workspace <id-or-slug>", "").hideHelp())
     .addOption(new Option("--yes", "").hideHelp())

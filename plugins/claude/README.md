@@ -19,3 +19,10 @@ This package is a dependency of `@jentrix/cli` and carries provider-facing
 content only (manifests, commands, hook declarations). Business logic lives in
 the CLI; removing the plugin leaves `jentrix session connect` as the fallback.
 MIT.
+
+All seven workflows include complete generated rules from
+`plugins/workflows/` in the public repository, with a short provider entry.
+No sibling package or repository file is needed at runtime. Maintainers edit
+those sources, run `pnpm gen:workflows`, and review the generated commands or
+skills; prepack rejects stale output. Provider hooks and trust stay explicit.
+Sessions use the folder's workspace; projects are optional task labels.

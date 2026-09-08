@@ -205,6 +205,20 @@ the tag (`git push origin :refs/tags/cli-v0.7.1`), merge, then tag the new head.
 Install afterward: `npm i -g @jentrix/cli`. Brew is not an install channel
 (see above), which is why the install docs omit it.
 
+## Preparing shared workflows
+
+Edit provider-neutral rules under `plugins/workflows/`, and the short
+provider entries/frontmatter there when a provider-specific change is needed.
+Run `pnpm gen:workflows`, review both generated provider surfaces, and include
+them with their sources. The CLI build and each plugin's prepack check reject
+stale entries. The packed smoke checks all seven complete workflows and the
+hook declarations in both independently installed packages.
+
+The generator uses only Node builtins and repository files. Regeneration
+requires no provider installation, hook trust change, network access, or
+version bump. Local review can keep existing versions; maintainers must make
+the normal release/version decision before distributing changed plugin text.
+
 ## How plugin changes ship
 
 Both provider plugins are packages of their own — `@jentrix/plugin-claude`

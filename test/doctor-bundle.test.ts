@@ -6,12 +6,9 @@ import { describe, it } from "node:test";
 
 import { CLI_VERSION } from "../src/client";
 import { doctorBundle } from "../src/commands/doctor-client";
-import {
-  runSessionDoctor,
-  type DoctorCheck,
-  type SessionCommandDeps,
-  type SessionToolCaller,
-} from "../src/commands/session";
+import { runSessionDoctor } from "../src/session/doctor";
+import { type DoctorCheck, type SessionCommandDeps } from "../src/session/deps";
+import { type SessionToolCaller } from "../src/tool-client";
 
 /**
  * `jentrix session doctor --bundle` (open-client R2 S2, PRD §8 Phase 5): the

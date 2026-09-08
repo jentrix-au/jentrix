@@ -11,7 +11,13 @@
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import { EXIT_CODES, envelopeOfResult, envelopeToExit } from "./errors";
+import {
+  EXIT_CODES,
+  envelopeOfResult,
+  envelopeToExit,
+  isUnauthorizedError,
+  firstResultText,
+} from "./errors";
 import { renderResult } from "./render";
 import { withRateLimitRetry, type RetryOptions } from "./retry";
 
@@ -61,7 +67,7 @@ export async function callTool(
     // failure text): unknown error → exit 1 with whatever text we have.
     return {
       exitCode: EXIT_CODES.INTERNAL,
-      stderr: `INTERNAL: tool call failed: ${firstText(result) ?? "no error detail"}`,
+      stderr: `INTERNAL: tool call failed: ${firstResultText(result) ?? "no error detail"}`,
     };
   }
 
@@ -77,14 +83,12 @@ function renderSuccess(result: unknown, options: CallOptions): string {
   }
   // No structuredContent (foreign server / non-P2.2 tool): pass the text
   // content through untouched rather than inventing structure.
-  return firstText(result) ?? "";
+  return firstResultText(result) ?? "";
 }
 
 function transportOutcome(e: unknown): CallOutcome {
   const message = e instanceof Error ? e.message : String(e);
-  const unauthorized =
-    (isRecord(e) && (e.code === 401 || e.status === 401)) ||
-    /\b401\b|unauthorized/i.test(message);
+  const unauthorized = isUnauthorizedError(e);
   const hint = unauthorized
     ? " — token rejected (HTTP 401): the token is invalid, expired, or revoked; set a valid STACKS_TOKEN"
     : "";
@@ -92,20 +96,6 @@ function transportOutcome(e: unknown): CallOutcome {
     exitCode: EXIT_CODES.TRANSPORT,
     stderr: `TRANSPORT: ${message}${hint}`,
   };
-}
-
-function firstText(result: unknown): string | null {
-  if (!isRecord(result) || !Array.isArray(result.content)) return null;
-  for (const block of result.content) {
-    if (
-      isRecord(block) &&
-      block.type === "text" &&
-      typeof block.text === "string"
-    ) {
-      return block.text;
-    }
-  }
-  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

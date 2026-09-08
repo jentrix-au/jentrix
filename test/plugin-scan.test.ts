@@ -17,7 +17,7 @@ import { describe, it } from "node:test";
  * Client-runtime v2 §17.4 — static enforcement over the PACKED plugin
  * content, plus the G6/§18 no-provider-SDK inspection of the shipped host.
  *
- * The scans run against `cli/plugins/` — the canonical source of the two
+ * The scans run against `plugins/claude` and `plugins/codex` — the canonical source of the two
  * plugin PACKAGES (`@jentrix/plugin-claude`, `@jentrix/plugin-codex`, open-
  * client S3), packed verbatim from these directories, so what this test
  * reads IS what an operator installs. They fail on any reappearance of
@@ -41,9 +41,9 @@ function walk(dir: string): string[] {
   return out;
 }
 
-const pluginFiles = walk(PLUGINS_ROOT).filter((f) =>
-  /\.(md|json|toml)$/.test(f),
-);
+const pluginFiles = ["claude", "codex"]
+  .flatMap((provider) => walk(join(PLUGINS_ROOT, provider)))
+  .filter((f) => /\.(md|json|toml)$/.test(f));
 
 describe("§17.4 packed-plugin static scans (both providers)", () => {
   it("scans a real corpus (both plugins present, non-trivial)", () => {
@@ -74,7 +74,10 @@ describe("§17.4 packed-plugin static scans (both providers)", () => {
     // §17.3 line 2: a Project is never REQUIRED by connect/align — neither
     // command takes --project at all in v2, so its appearance on the same
     // line is the tell.
-    { pattern: /session (connect|align)[^\n]*--project\b/, why: "Project-required align/connect" },
+    {
+      pattern: /session (connect|align)[^\n]*--project\b/,
+      why: "Project-required align/connect",
+    },
   ];
 
   for (const { pattern, why } of FORBIDDEN) {
@@ -152,21 +155,19 @@ describe("G6/§18 — the shipped host carries no provider SDK", () => {
   });
 
   // The bundle checks read dist/, which is gitignored — they run whenever a
-  // build exists (CI builds before testing; locally `pnpm --dir cli build`).
+  // build exists (CI builds before testing; locally `pnpm build`).
   const built = existsSync(HOST_BUNDLE);
 
   it(
     built
       ? "the host bundle embeds no provider SDK code"
-      : "SKIPPED (run `pnpm --dir cli build` for the bundle inspection)",
+      : "SKIPPED (run `pnpm build` for the bundle inspection)",
     { skip: !built },
     () => {
       const bundle = readFileSync(HOST_BUNDLE, "utf8");
       // The claude host is SDK-free by construction — not even the name.
       assert.ok(!bundle.includes("@anthropic-ai/claude-agent-sdk"));
-      // The codex SDK is EXTERNAL (build.mjs) and unreachable (the dispatch
-      // guard refuses codex launch mode): its specifier may appear in the
-      // refused dynamic import, but no bundled module body does.
+      assert.ok(!bundle.includes("@openai/codex-sdk"));
       assert.ok(!bundle.includes("node_modules/@openai"));
       assert.ok(!bundle.includes("node_modules/@anthropic-ai"));
     },
@@ -175,7 +176,7 @@ describe("G6/§18 — the shipped host carries no provider SDK", () => {
   it(
     built
       ? "the packed hook path runs standalone (zero-network, no SDK resolution)"
-      : "SKIPPED (run `pnpm --dir cli build` for the hook-path smoke)",
+      : "SKIPPED (run `pnpm build` for the hook-path smoke)",
     { skip: !built },
     () => {
       // Real bundle, throwaway HOME, no node_modules on the resolution path

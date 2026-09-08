@@ -3,44 +3,22 @@
  * (client-runtime v2 §7.4/§15.4): hand-written ergonomic wrappers over
  * `get_task`/`get_project` + `add_project_link`/`remove_project_link` — no
  * new MCP tool. Session-independent, idempotent, ADMIN/OWNER-gated by the
- * server, and every mutation DISCLOSES the governed-worker consequence: the
- * ProjectLink graph is also the ownership graph project-bound workers are
- * scoped by.
+ * server. Projects are optional task labels within the task's workspace.
  */
 
 import { Command } from "commander";
 
 import { EXIT_CODES } from "../errors";
+import { requireFolderBinding } from "../binding";
+import { resolveTask, isTaskKey } from "../task-resolution";
 import {
   callStructured,
-  reportError,
+  ToolCallError,
   UsageError,
-  withCaller,
-  type SessionCommandDeps,
   type SessionToolCaller,
-} from "./session";
-
-const OWNERSHIP_DISCLOSURE =
-  "note: Project labels are also the governed-worker ownership graph — adding/removing one can change which project-bound workers may act on this task (workspace-wide workers are unaffected).";
-
-async function resolveTask(
-  caller: SessionToolCaller,
-  wanted: string,
-): Promise<{ id: string; key: string; workspaceId: string }> {
-  const key = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/.exec(wanted.trim());
-  const task = await callStructured(
-    caller,
-    "get_task",
-    key
-      ? { key: wanted.trim().toUpperCase(), response_format: "concise" }
-      : { taskId: wanted.trim(), response_format: "concise" },
-  );
-  return {
-    id: String(task.id),
-    key: String(task.key),
-    workspaceId: String(task.workspaceId),
-  };
-}
+} from "../tool-client";
+import { inspectCheckout, reportError, withCaller } from "../session/runtime";
+import { type SessionCommandDeps } from "../session/deps";
 
 async function resolveProject(
   caller: SessionToolCaller,
@@ -54,14 +32,40 @@ async function resolveProject(
       projectId: trimmed,
     });
     const row = (project.project ?? project) as { id?: string; name?: string };
-    if (row.id) return { id: String(row.id), name: String(row.name ?? row.id) };
-  } catch {
-    // fall through to slug resolution
+    if (typeof row.id !== "string")
+      throw new ToolCallError(
+        "get_project returned no project identity",
+        "INTERNAL",
+      );
+    return { id: row.id, name: String(row.name ?? row.id) };
+  } catch (error) {
+    // Only an actual lookup miss permits slug fallback. Auth/transport failures
+    // must retain their real error and never trigger a second lookup.
+    if (!(error instanceof ToolCallError) || error.code !== "NOT_FOUND")
+      throw error;
   }
   const listed = await callStructured(caller, "list_projects", { workspaceId });
-  const rows =
-    (listed.projects as Array<{ id: string; name: string; slug: string }>) ??
-    [];
+  if (
+    !Array.isArray(listed.projects) ||
+    !listed.projects.every(
+      (row) =>
+        row &&
+        typeof row.id === "string" &&
+        row.id &&
+        typeof row.name === "string" &&
+        typeof row.slug === "string",
+    )
+  ) {
+    throw new ToolCallError(
+      "list_projects returned an invalid project list",
+      "INTERNAL",
+    );
+  }
+  const rows = listed.projects as Array<{
+    id: string;
+    name: string;
+    slug: string;
+  }>;
   const match = rows.find(
     (p) => p.id === trimmed || p.slug === trimmed.toLowerCase(),
   );
@@ -87,8 +91,18 @@ export async function runTaskProject(
         "--task <id-or-key> and --project <id-or-slug> are both required",
       );
     }
+    const target = deps.resolveTarget();
+    // IDs work outside a bound checkout. Keys never search arbitrary workspaces.
+    let workspaceId: string | undefined;
+    if (isTaskKey(flags.task)) {
+      const inspection = await inspectCheckout(deps);
+      workspaceId = requireFolderBinding(inspection.root, {
+        endpoint: target.url,
+        repoOwnerName: inspection.repoOwnerName,
+      }).workspaceId;
+    }
     return await withCaller(deps, async (caller) => {
-      const task = await resolveTask(caller, flags.task!);
+      const task = await resolveTask(caller, flags.task!, workspaceId);
       const project = await resolveProject(
         caller,
         task.workspaceId,
@@ -104,7 +118,6 @@ export async function runTaskProject(
           ? `${task.key} labelled with project ${project.name}. (Adding an existing label is a no-op.)`
           : `Project ${project.name} removed from ${task.key}. (Removing a missing label is a no-op.)`,
       );
-      deps.writeOut(OWNERSHIP_DISCLOSURE);
       return EXIT_CODES.OK;
     });
   } catch (error) {
@@ -123,7 +136,7 @@ export function registerTaskProjectCommand(
   const project = task
     .command("project")
     .description(
-      "Add or remove a Project LABEL on a task — optional classification that is also the governed-worker ownership graph",
+      "Add or remove an optional project label within the task workspace",
     );
   project
     .command("add")

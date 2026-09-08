@@ -61,7 +61,8 @@
     "gen:help-goldens": "node --import tsx scripts/gen-help-goldens.ts",
     "build": "node scripts/build.mjs",
     "prepack": "node scripts/build.mjs",
-    "validate:examples": "node scripts/validate-examples.mjs"
+    "validate:examples": "node scripts/validate-examples.mjs",
+    "gen:workflows": "node scripts/generate-workflows.mjs"
   },
   "dependencies": {
     "@jentrix/plugin-claude": "workspace:*",

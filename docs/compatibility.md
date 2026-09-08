@@ -5,7 +5,7 @@ Four things carry a version, and by rule they never share a number:
 | Domain | Owner | Where the number lives |
 | --- | --- | --- |
 | Hosted API surface (`mvp`) | Jentrix, server-side | `apiRelease` in `GET https://tm.jentrix.ai/api/mcp/contract` (semver; ask the endpoint rather than this table, which cannot follow it) |
-| `@jentrix/cli` | this repository | `package.json` + `CLI_VERSION` in `src/client.ts` (`0.8.1`) |
+| `@jentrix/cli` | this repository | `package.json` + `CLI_VERSION` in `src/client.ts` (currently `0.8.3`) |
 | `@jentrix/plugin-claude` | this repository | `plugins/claude/package.json` + `.claude-plugin/plugin.json` (`0.5.6`) |
 | `@jentrix/plugin-codex` | this repository | `plugins/codex/package.json` + `plugins/jentrix/.codex-plugin/plugin.json` (`0.2.9`) |
 
@@ -123,3 +123,71 @@ examples is `peerDependencies` in the plugin's `package.json`:
 the CLI version in this tree; a customer plugin's CI can run the same script
 against its own directory. The provider ignores the field; it is a contract
 between your plugin and the CLI it shells out to.
+
+## Local command migrations
+
+The API-major support window above is separate from local CLI aliases. The
+repository has no published version/date retiring `jentrix align` or
+`jentrix session attach`. They remain thin adapters to `session align` and
+`session connect`, with the same options, capture consent, trusted identity,
+and implementation. The old alignment wizard is absent; `align --questions`
+prints the migration. Old `align --project/--workspace` flags print a notice;
+the folder binding still supplies the workspace and no label is added.
+
+Proposed alias cutoff: the next CLI major, subject to a maintainer's explicit
+release decision and migration notice. No release version or date has been
+scheduled by this cleanup. Release review must decide the final cutoff for
+these public workflow aliases. Internal host aliases are listed below.
+
+| Old invocation | Current behavior and migration |
+| --- | --- |
+| `session codex`, including `--resume` | Local `CODEX_LAUNCH_UNAVAILABLE` refusal before credentials, session writes, plans, or host launch. Start Codex normally; run `session connect --provider codex`. |
+| `runner …` | Local `OPS_RUNNER_REMOVED` refusal. The MVP CLI neither discovers nor invokes an Ops runner, and never installs one as repair. |
+| `session claude/connect/attach/doctor --project …` | Local `SESSION_PROJECT_REMOVED` refusal. Bind with `folder align`, omit `--project`, and use `task project add/remove` for optional task labels. There is no second project-scoped session implementation. |
+| `session claude` | Supported foreground Claude launch in the folder workspace; eligible interrupted sessions can still resume with `--resume`. |
+
+Persisted state is not retired with a command. Existing alignment markers,
+OAuth configuration, installation identity, spool receipts, and active session
+records remain readable. The `stacks` binary alias, environment variables,
+config directories, and correlation headers remain compatible. No cleanup
+requires clearing a user's state or changing capture preferences.
+
+`task project add/remove --task JEN-42` resolves the number in the checkout's
+bound workspace and verifies the returned key and workspace. A foreign prefix
+cannot select an unrelated task with the same number. Without a binding, use
+the task ID or explicitly align the folder; the CLI never searches arbitrary
+workspaces to guess a key. Task IDs still work without a folder binding.
+
+Raw `jentrix tool` calls require the bundled product manifest. Missing,
+malformed, or unreadable manifests produce `PRODUCT_MANIFEST_UNAVAILABLE`
+before a server call; reinstall the CLI package to repair it. Local help,
+version, and available diagnostics remain usable. A damaged install cannot
+send an unvalidated tool name.
+
+### Separate upstream contract follow-up
+
+The adopted membership tool descriptions still mention an Ops approval pack.
+Their authoritative source is the application repository's
+`src/lib/mcp/tools-product.ts`: descriptions of `invite_member`,
+`set_member_role`, and `remove_member`. That wording is not client-owned.
+The required order is: change and verify the server descriptions and generated
+server contract, deploy the server change, then separately adopt the deployed
+contract with `scripts/adopt-contract.mjs`. This cleanup neither changes that
+API contract nor claims the upstream wording has shipped. Do not hand-edit the
+client's adopted manifest, bundle snapshot, digest, or vectors to hide it.
+
+The bundled host also accepts `session-run` and `session-hook` as internal
+aliases for `run` and `hook`. Old active clients and temporary hook settings
+may still invoke those verbs; both use the current implementation. Retire
+these only at a declared host protocol transition after old active sessions
+have drained, with the next CLI major as the proposed review point. No such
+release has been scheduled. The `stacks` binary and stored-state readers have
+separate compatibility obligations and are retained.
+
+OAuth refresh now shares config validation, atomic owner-only writes, and
+rotation-aware adoption between the CLI and host. A concurrent credential
+must name the same token endpoint and client before it can be adopted. A
+malformed config is never repaired by overwriting it, unrelated persisted
+fields survive merges, and refresh never changes the selected MCP endpoint.
+The CLI retries authentication once; the host retains its single pending
+refresh and permanently halts rotation if a just-produced token is rejected.

@@ -26,6 +26,22 @@ a hook argument**, and the CLI never writes one there. Compaction-path hooks
 carry an explicit timeout of a few seconds so a slow push cannot stall your
 `/compact`.
 
+## Workflow source and provider identity
+
+All seven official workflows are materialized from `plugins/workflows/` by
+`pnpm gen:workflows`. Each Claude command and Codex skill contains its full
+workflow, shared boundaries, and provider entry. There are no runtime links
+to a sibling package or repository files. Build and package checks reject
+stale generated entries. The provider frontmatter and hook declarations
+remain provider-specific; generation does not grant tools or trust hooks.
+
+Codex starts normally and connects with `jentrix session connect --provider
+codex`; the CLI does not launch a Codex SDK. Its exact rollout fallback keeps
+provider token receipts and opening-prompt provenance, but cannot reconstruct
+missing lifecycle hooks. Receipt coverage and lifecycle coverage are reported
+separately. Capture/skeleton consent and exact provider identity still govern
+what the host records.
+
 ## The absolute-path pin
 
 `jentrix plugin install <provider>` rewrites each hook command in the

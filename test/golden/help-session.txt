@@ -1,0 +1,28 @@
+Usage: jentrix session [options] [command]
+
+Connect, align, inspect, and end coding sessions in the folder workspace.
+
+Options:
+  -h, --help                    display help for command
+
+Commands:
+  claude [options]              Start a connected Claude Code session in the
+                                folder workspace.
+  connect [options]             Connect the CURRENT provider session (id from
+                                trusted lifecycle context) to a Jentrix session
+                                in the folder's workspace — identity only;
+                                `session align` anchors work.
+  align [options]               Anchor THIS session's next work + telemetry to a
+                                task (or session level) with an accountable
+                                owner — flag-driven, no wizard, no Project.
+  doctor [options]              Preflight credentials, workspace pin, session
+                                host, spool, repository, folder binding, and
+                                provider capture — read-only.
+  status [options] [sessionId]  Show a session (or your active sessions),
+                                including capture health.
+  end [options] [sessionId]     Close a session, verify capture, and store the
+                                RUN_SUMMARY. Pushes the attested delivery patch
+                                when HEAD moved, and enforces the evidence-floor
+                                checks E1–E4 (refusal names each unmet check and
+                                its fix).
+  help [command]                display help for command

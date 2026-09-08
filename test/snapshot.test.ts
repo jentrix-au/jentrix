@@ -17,7 +17,7 @@ import {
   runSessionSnapshot,
 } from "../src/commands/snapshot";
 import { type PushDeps } from "../src/commands/push";
-import { writeAlignmentMarker } from "../src/commands/session";
+import { writeAlignmentMarker } from "../src/session/state";
 
 describe("resolveSnapshotSession", () => {
   const hosts: Record<string, { transcriptPath?: string }> = {

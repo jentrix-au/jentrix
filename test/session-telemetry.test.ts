@@ -13,12 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import {
-  runSessionEnd,
-  telemetryVerdict,
-  type SessionCommandDeps,
-  type SessionToolCaller,
-} from "../src/commands/session";
+import { runSessionEnd } from "../src/session/end";
+import { telemetryVerdict } from "../src/session/status";
+import { type SessionCommandDeps } from "../src/session/deps";
+import { type SessionToolCaller } from "../src/tool-client";
 import { EXIT_CODES } from "../src/errors";
 
 const FULL = {

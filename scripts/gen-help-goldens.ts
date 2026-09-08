@@ -1,4 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { Command } from "commander";
+import { registerSessionCommand } from "../src/commands/session";
+import type { SessionCommandDeps } from "../src/session/deps";
 
 import { ALIASES, FLAG_RENAMES } from "../src/commands/aliases";
 import {
@@ -11,6 +14,9 @@ import { loadSurface } from "../src/surface";
 
 const GOLDENS = [
   { file: "help-root.txt", command: [] },
+  { file: "help-session.txt", command: ["session"] },
+  { file: "help-session-connect.txt", command: ["session", "connect"] },
+  { file: "help-session-align.txt", command: ["session", "align"] },
   { file: "help-task.txt", command: ["task"] },
   { file: "help-agent.txt", command: ["agent"] },
   { file: "help-task-update.txt", command: ["task", "update"] },
@@ -27,9 +33,15 @@ const runtime: TreeRuntime = {
   },
 };
 const program = buildProgram(manifest, config, runtime);
+const sessionProgram = new Command().name("jentrix");
+registerSessionCommand(
+  sessionProgram,
+  {} as SessionCommandDeps,
+  runtime.onExit,
+);
 
 for (const { file, command } of GOLDENS) {
-  let selected = program;
+  let selected = command[0] === "session" ? sessionProgram : program;
   for (const segment of command) {
     const next = selected.commands.find(
       (candidate) => candidate.name() === segment,

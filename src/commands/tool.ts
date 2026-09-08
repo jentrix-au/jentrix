@@ -17,7 +17,8 @@
 import { Command } from "commander";
 
 import { callTool, type ToolCaller } from "../call";
-import { isUnauthorizedError, unauthorizedMessage } from "../client";
+import { unauthorizedMessage } from "../client";
+import { isUnauthorizedError } from "../errors";
 import { ConfigError, resolveConfig, type JentrixConfigFile } from "../config";
 import { EXIT_CODES } from "../errors";
 
@@ -241,19 +242,18 @@ export async function runToolCommand(
   }
 
   // ---- product-manifest refusal (D8) ------------------------------------
-  // Names outside the bundled product manifest are refused locally. The
-  // manifest-unreadable install (knownTools null) degrades to the pre-v2
-  // notice-and-send so a broken install still has its escape hatch.
-  if (deps.knownTools && !deps.knownTools.has(name)) {
+  // Validation is mandatory, even when an installation is damaged.
+  if (!deps.knownTools) {
     deps.writeErr(
-      `error: TOOL_NOT_IN_PRODUCT_MANIFEST: "${name}" is not in this CLI's bundled product manifest (${deps.knownTools.size} tools). The CLI is product-only (client-runtime v2 D8); operations tools are served by the platform deployment's own MCP mount — connect an MCP client to it directly, or use \`jentrix-runner\` for worker operations. \`jentrix tool list\` shows what this build can call.`,
+      "error: PRODUCT_MANIFEST_UNAVAILABLE: this install's product manifest is unreadable — reinstall @jentrix/cli, then retry",
     );
     return EXIT_CODES.INVALID_INPUT;
   }
-  if (!deps.knownTools) {
+  if (!deps.knownTools.has(name)) {
     deps.writeErr(
-      `notice: this install's product manifest is unreadable — sending "${name}" unvalidated (the server decides)`,
+      `error: TOOL_NOT_IN_PRODUCT_MANIFEST: "${name}" is not in this CLI's bundled product manifest (${deps.knownTools.size} tools). \`jentrix tool list\` shows what this build can call.`,
     );
+    return EXIT_CODES.INVALID_INPUT;
   }
 
   // ---- config (missing token → 7; malformed file / bad URL → 2) --------
@@ -342,7 +342,7 @@ async function runToolList(
 ): Promise<number> {
   if (!deps.knownTools) {
     deps.writeErr(
-      "error: this install's product manifest is unreadable — reinstall @jentrix/cli, then retry",
+      "error: PRODUCT_MANIFEST_UNAVAILABLE: this install's product manifest is unreadable — reinstall @jentrix/cli, then retry",
     );
     return EXIT_CODES.INVALID_INPUT;
   }
@@ -402,7 +402,9 @@ async function runToolList(
       );
     } else {
       for (const tool of manifest) {
-        deps.writeOut(served.has(tool) ? tool : `${tool}  (not on this server)`);
+        deps.writeOut(
+          served.has(tool) ? tool : `${tool}  (not on this server)`,
+        );
       }
       deps.writeOut(
         `${callable.length} of ${manifest.length} manifest tools are served by ${config.url}`,

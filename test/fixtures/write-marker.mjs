@@ -1,7 +1,7 @@
 // One concurrent alignment writer, for the marker race test. Separate file
 // because the race needs real PROCESSES: the marker API is synchronous, so two
 // writers in one thread cannot interleave and would prove nothing.
-import { writeAlignmentMarker } from "../../src/commands/session.ts";
+import { writeAlignmentMarker } from "../../src/session/state.ts";
 
 const [configPath, repoRoot, key, startAt] = process.argv.slice(2);
 while (Date.now() < Number(startAt)) {

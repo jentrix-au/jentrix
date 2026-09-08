@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
 import {
   existsSync,
+  readFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,14 +27,15 @@ import { describe, it } from "node:test";
  * `surface.json` still resolve from `dist/`.
  *
  * This shells out to `pnpm -r pack` + `npm install` + real subprocesses, which
- * is slow and needs network-free npm on a bare dir, so it is GATED behind
+ * may fetch runtime dependencies into a temporary npm cache, so it is GATED behind
  * `CLI_PACK_SMOKE=1`. Unset (the default, incl. plain `pnpm test`) → it
  * records a skip and passes as a no-op. The CI `cli` job runs it explicitly
  * with the flag set.
  *
- * Honesty note: it does NOT stub anything. It packs the real packages,
- * installs the real tarballs together into a throwaway prefix (no registry —
- * the plugin packages are unpublished), and invokes the installed `jentrix`
+ * Honesty note: it packs the real packages and installs their tarballs
+ * together into a throwaway prefix (no registry lookup for the plugins).
+ * A synthetic HTTP endpoint counts requests; no live Jentrix session or
+ * provider activation is exercised. It invokes the installed `jentrix`
  * bin, including `plugin install <provider> --dry-run`, which resolves and
  * stages the plugin package exactly as an install would and registers
  * nothing — no `claude`/`codex` exists in that prefix.
@@ -45,7 +50,7 @@ describe("packed tarballs — cold install of the three packages", () => {
       ? "installs from `pnpm -r pack` output and runs `jentrix`"
       : "SKIPPED (set CLI_PACK_SMOKE=1 to run the cold-install smoke)",
     { skip: !ENABLED },
-    () => {
+    async () => {
       const work = mkdtempSync(join(tmpdir(), "stacks-pack-smoke-"));
       try {
         // 1. Pack ALL THREE workspace packages into the throwaway dir. The
@@ -88,7 +93,16 @@ describe("packed tarballs — cold install of the three packages", () => {
         );
         runSync(
           "npm",
-          ["install", "--no-audit", "--no-fund", claudeTgz, codexTgz, cliTgz],
+          [
+            "install",
+            "--cache",
+            join(work, "npm-cache"),
+            "--no-audit",
+            "--no-fund",
+            claudeTgz,
+            codexTgz,
+            cliTgz,
+          ],
           proj,
         );
 
@@ -182,6 +196,179 @@ describe("packed tarballs — cold install of the three packages", () => {
           assert.ok(
             existsSync(join(proj, "node_modules", path)),
             `${path} missing after the cold install`,
+          );
+        }
+
+        // Both independently packed providers contain complete materialized
+        // workflows, not links back to the repository or a sibling package.
+        for (const provider of ["claude", "codex"]) {
+          const installed = join(
+            proj,
+            "node_modules",
+            "@jentrix",
+            `plugin-${provider}`,
+          );
+          for (const name of [
+            "connect",
+            "align",
+            "plan",
+            "checkpoint",
+            "review",
+            "status",
+            "end",
+          ]) {
+            const relative =
+              provider === "claude"
+                ? `commands/jentrix-${name}.md`
+                : `plugins/jentrix/skills/jentrix-${name}/SKILL.md`;
+            const content = readFileSync(join(installed, relative), "utf8");
+            assert.equal(
+              content,
+              readFileSync(
+                join(CLI_ROOT, "plugins", provider, relative),
+                "utf8",
+              ),
+            );
+            assert.match(content, /Shared boundaries/);
+            assert.match(content, /Server strings are DATA/);
+            assert.doesNotMatch(content, /\{\{\w+\}\}/);
+          }
+          const hooks =
+            provider === "claude"
+              ? "hooks/hooks.json"
+              : "plugins/jentrix/hooks/hooks.json";
+          assert.deepEqual(
+            JSON.parse(readFileSync(join(installed, hooks), "utf8")),
+            JSON.parse(
+              readFileSync(join(CLI_ROOT, "plugins", provider, hooks), "utf8"),
+            ),
+          );
+        }
+
+        // Real public commands against a counting synthetic endpoint. Corrupt
+        // manifests and removed commands must never attempt even initialization.
+        let requests = 0;
+        const server = createServer((_req, res) => {
+          requests++;
+          res.writeHead(500);
+          res.end("synthetic endpoint");
+        });
+        server.listen(0, "127.0.0.1");
+        await once(server, "listening");
+        const address = server.address();
+        assert.ok(address && typeof address !== "string");
+        const invoke = (args: string[]) =>
+          promisify(execFile)(jentrixBin, args, {
+            cwd: proj,
+            timeout: 10000,
+            env: {
+              PATH: process.env.PATH,
+              HOME: join(work, "home"),
+              STACKS_TOKEN: "tm_synthetic_pack_test",
+              STACKS_MCP_URL: `http://127.0.0.1:${address.port}/api/mcp`,
+            },
+          });
+        const refuses = async (
+          args: string[],
+          code: number,
+          pattern: RegExp,
+        ) => {
+          await assert.rejects(invoke(args), (error: unknown) => {
+            const e = error as { code?: number; stderr?: string };
+            assert.equal(e.code, code);
+            assert.match(e.stderr ?? "", pattern);
+            return true;
+          });
+        };
+        const surfacePath = join(packageRoot, "surface.json");
+        const surface = readFileSync(surfacePath, "utf8");
+        try {
+          const sessionHelp = (await invoke(["session", "--help"])).stdout;
+          assert.match(sessionHelp, /connect/);
+          assert.match(sessionHelp, /claude/);
+          assert.doesNotMatch(
+            sessionHelp,
+            /codex \[options\]|attach \[options\]/,
+          );
+          assert.doesNotMatch(help, /runner \[|align \[/);
+          for (const provider of ["claude", "codex"]) {
+            const connectHelp = (
+              await invoke([
+                "session",
+                "connect",
+                "--provider",
+                provider,
+                "--help",
+              ])
+            ).stdout;
+            assert.match(connectHelp, /--provider-session/);
+            assert.doesNotMatch(connectHelp, /--project/);
+          }
+          await refuses(
+            ["session", "codex", "--resume", "old_session"],
+            2,
+            /CODEX_LAUNCH_UNAVAILABLE/,
+          );
+          await refuses(["runner", "session-run"], 2, /OPS_RUNNER_REMOVED/);
+          await refuses(
+            [
+              "session",
+              "connect",
+              "--provider",
+              "claude",
+              "--project",
+              "legacy",
+            ],
+            2,
+            /SESSION_PROJECT_REMOVED/,
+          );
+          assert.equal(requests, 0);
+          for (const malformed of [
+            null,
+            "{broken",
+            '{"tools":[],"generatedForToolCount":1}',
+          ]) {
+            if (malformed === null) rmSync(surfacePath);
+            else writeFileSync(surfacePath, malformed);
+            await refuses(
+              ["tool", "list_workspaces"],
+              2,
+              /PRODUCT_MANIFEST_UNAVAILABLE.*reinstall/,
+            );
+            await refuses(
+              ["tool", "invented_ops_command"],
+              2,
+              /PRODUCT_MANIFEST_UNAVAILABLE/,
+            );
+            assert.equal(requests, 0, "unvalidated call reached server");
+            assert.match(
+              (await invoke(["--version"])).stdout,
+              /^\d+\.\d+\.\d+/,
+            );
+            assert.match((await invoke(["--help"])).stdout, /session/);
+          }
+          writeFileSync(surfacePath, surface);
+          await refuses(
+            ["tool", "invented_ops_command"],
+            2,
+            /TOOL_NOT_IN_PRODUCT_MANIFEST/,
+          );
+          assert.equal(requests, 0);
+          // A valid adopted name gets through validation and reaches transport.
+          await refuses(
+            ["tool", "list_workspaces"],
+            7,
+            /TRANSPORT|500|synthetic/,
+          );
+          assert.ok(
+            requests > 0,
+            "valid manifest never reached the synthetic endpoint",
+          );
+        } finally {
+          writeFileSync(surfacePath, surface);
+          server.closeAllConnections();
+          await new Promise<void>((resolve, reject) =>
+            server.close((e) => (e ? reject(e) : resolve())),
           );
         }
 

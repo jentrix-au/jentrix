@@ -20,6 +20,9 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
+import { generateWorkflows } from "./generate-workflows.mjs";
+
+generateWorkflows({ check: true });
 
 const banner = {
   js: [
@@ -49,9 +52,6 @@ await build({
   outfile: "dist/session-host-main.js",
   banner,
   logLevel: "info",
-  // G6: no provider SDK ships with the CLI. The Codex LAUNCH arm's dynamic
-  // import stays external — and unreachable, refused by the dispatch guard.
-  external: ["@openai/codex-sdk"],
 });
 
 // The core entry: no banner (nothing in it is CJS), no external — the core

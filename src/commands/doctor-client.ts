@@ -20,22 +20,14 @@ import {
   readClaudeListing,
   readCodexListing,
   samePluginPath,
-  type PluginInvocation,
   type PluginPathProbe,
   type PluginProvider,
 } from "./plugin";
-import type { DoctorCheck, SessionCommandDeps } from "./session";
-
-/** What the client checks need — the installer's own resolvers, injected. */
-export interface ClientProbeDeps extends PluginPathProbe {
-  cliPackageRoot(): string;
-  resolvePluginDir(): string | null;
-  resolveCodexPluginDir(): string | null;
-  resolveClaude(): Promise<string | null>;
-  resolveCodex(): Promise<string | null>;
-  invoke(file: string, args: string[]): Promise<PluginInvocation>;
-  homeDir(): string;
-}
+import type {
+  DoctorCheck,
+  SessionCommandDeps,
+  ClientProbeDeps,
+} from "../session/deps";
 
 export type InstallSource =
   "npm global" | "Homebrew" | "pnpm" | "npx cache" | "dev checkout";

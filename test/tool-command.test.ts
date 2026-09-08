@@ -371,7 +371,7 @@ describe("runToolCommand — product-manifest refusal (D8)", () => {
     assert.match(errs, /TOOL_NOT_IN_PRODUCT_MANIFEST/);
     assert.match(errs, /create_work_order/);
     // Names the operations paths and the discovery command.
-    assert.match(errs, /jentrix-runner/);
+    assert.doesNotMatch(errs, /jentrix-runner/);
     assert.match(errs, /jentrix tool list/);
     // D20: the count in the message is the injected manifest's size, not a
     // frozen number.
@@ -384,14 +384,18 @@ describe("runToolCommand — product-manifest refusal (D8)", () => {
     assert.deepEqual(rec.err, []);
   });
 
-  it("manifest unavailable (null) → degraded notice-and-send, not a refusal", async () => {
+  it("manifest unavailable (null) refuses before configuration or connection", async () => {
     const { deps, rec } = makeDeps({ knownTools: null });
+    deps.configFile = () => {
+      throw new Error("must refuse before config");
+    };
+    deps.connect = async () => {
+      throw new Error("must not connect");
+    };
     const code = await runToolCommand("whatever_tool", flags(), deps);
-    assert.equal(code, 0);
-    assert.equal(rec.calls.length, 1, "degraded mode still sends");
-    const notices = rec.err.filter((line) => line.startsWith("notice:"));
-    assert.equal(notices.length, 1);
-    assert.match(notices[0], /unvalidated/);
+    assert.equal(code, 2);
+    assert.equal(rec.calls.length, 0);
+    assert.match(rec.err.join("\n"), /PRODUCT_MANIFEST_UNAVAILABLE.*reinstall/);
   });
 });
 

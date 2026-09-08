@@ -27,5 +27,8 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/generate-workflows.mjs --check"
   }
 }

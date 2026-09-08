@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { requestUsageFlush } from "../src/commands/session";
+import { requestUsageFlush } from "../src/session/host-control";
 
 test("writes flush-request.json and reports true once the host deletes it (acked beat)", async () => {
   const spoolRoot = mkdtempSync(join(tmpdir(), "stacks-align-flush-"));
@@ -104,7 +104,7 @@ test("an unwritable spool dir reports false instead of throwing", async () => {
 // does.
 // ---------------------------------------------------------------------------
 
-import { alignChangesBucket } from "../src/commands/session";
+import { alignChangesBucket } from "../src/session/alignment";
 
 test("D6: every bucket change flushes — including unaligned→first-task — and same-task never does", () => {
   // The defect boundary: first alignment of a fresh session.

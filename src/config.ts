@@ -252,10 +252,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Unparseable or wrong-shaped file → `ConfigError` with the path and what is
  * wrong (exit 2) — a clear one-liner, never a stack trace.
  */
-export function readConfigFile(
+function readConfigDocument(
   path: string,
   fs: ConfigFileReader = { readFileSync },
-): JentrixConfigFile | null {
+): (JentrixConfigFile & Record<string, unknown>) | null {
   let raw: string;
   try {
     raw = fs.readFileSync(path, "utf8");
@@ -268,12 +268,9 @@ export function readConfigFile(
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    throw new ConfigError(
-      `config file ${path} is not valid JSON: ${detail}`,
-      2,
-    );
+  } catch {
+    // JSON parser diagnostics can quote credential bytes from the input.
+    throw new ConfigError(`config file ${path} is not valid JSON`, 2);
   }
   if (!isRecord(parsed)) {
     throw new ConfigError(
@@ -325,6 +322,7 @@ export function readConfigFile(
     };
   }
   return {
+    ...parsed,
     ...(parsed.token !== undefined ? { token: parsed.token } : {}),
     ...(parsed.url !== undefined ? { url: parsed.url } : {}),
     ...(parsed.defaults !== undefined
@@ -337,6 +335,27 @@ export function readConfigFile(
   };
 }
 
+/** Read the supported fields; merge operations retain the full validated document. */
+export function readConfigFile(
+  path: string,
+  fs: ConfigFileReader = { readFileSync },
+): JentrixConfigFile | null {
+  const document = readConfigDocument(path, fs);
+  if (!document) return null;
+  const result: JentrixConfigFile = {};
+  for (const key of [
+    "token",
+    "url",
+    "defaults",
+    "oauth",
+    "installationId",
+  ] as const) {
+    if (document[key] !== undefined)
+      Object.assign(result, { [key]: document[key] });
+  }
+  return result;
+}
+
 /**
  * M20.1 §10.3 — create-if-absent installation UUID under the config write
  * path (atomic temp+rename), so concurrent first-connect commands converge on
@@ -347,7 +366,8 @@ export function ensureInstallationId(
   io: { reader?: ConfigFileReader; writer?: ConfigFileWriter } = {},
   mint: () => string = () => crypto.randomUUID(),
 ): string {
-  const existing = readConfigFile(path, io.reader ?? { readFileSync }) ?? {};
+  const existing =
+    readConfigDocument(path, io.reader ?? { readFileSync }) ?? {};
   if (existing.installationId) return existing.installationId;
   const installationId = mint();
   writeConfigFile(
@@ -425,7 +445,7 @@ export function writeConfigFile(
  * `token`; the rotation material goes in `oauth`. Read-merge-write against the
  * CURRENT on-disk file so a concurrent writer's other fields survive, and the
  * atomic rename makes the token+refresh swap all-or-nothing (a lost refresh
- * race is handled one level up — the loser re-logs in, never corrupts here).
+ * race is handled by oauth-session.ts, which adopts a concurrent winner).
  */
 export function saveOAuthSession(
   path: string,
@@ -436,7 +456,8 @@ export function saveOAuthSession(
   },
   io: { reader?: ConfigFileReader; writer?: ConfigFileWriter } = {},
 ): void {
-  const existing = readConfigFile(path, io.reader ?? { readFileSync }) ?? {};
+  const existing =
+    readConfigDocument(path, io.reader ?? { readFileSync }) ?? {};
   const next: JentrixConfigFile = {
     ...existing,
     token: session.accessToken,
@@ -454,7 +475,7 @@ export function clearOAuthSession(
   path: string,
   io: { reader?: ConfigFileReader; writer?: ConfigFileWriter } = {},
 ): { hadToken: boolean } {
-  const existing = readConfigFile(path, io.reader ?? { readFileSync });
+  const existing = readConfigDocument(path, io.reader ?? { readFileSync });
   if (!existing) return { hadToken: false };
   const hadToken = existing.token !== undefined || existing.oauth !== undefined;
   const next: JentrixConfigFile = { ...existing };
