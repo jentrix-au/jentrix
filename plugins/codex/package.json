@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/plugin-codex",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "The official Jentrix plugin for Codex: connected-session skills and trusted lifecycle hooks, materialized by the Jentrix CLI (jentrix plugin install codex).",
   "keywords": [
     "jentrix",
@@ -27,5 +27,8 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/generate-workflows.mjs --check"
   }
 }

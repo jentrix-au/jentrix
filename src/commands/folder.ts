@@ -19,13 +19,9 @@ import {
   type FolderBinding,
 } from "../binding";
 import { EXIT_CODES } from "../errors";
-import {
-  callStructured,
-  inspectCheckout,
-  UsageError,
-  withCaller,
-  type SessionCommandDeps,
-} from "./session";
+import { callStructured, UsageError } from "../tool-client";
+import { inspectCheckout, withCaller } from "../session/runtime";
+import { type SessionCommandDeps } from "../session/deps";
 
 export interface FolderAlignFlags {
   workspace?: string;
@@ -72,7 +68,9 @@ async function pickWorkspace(
   }
   deps.writeOut("Which workspace should this checkout use by default?");
   rows.forEach((ws, index) => {
-    deps.writeOut(`  ${index + 1}. ${ws.name ?? ws.slug ?? ws.id} (${ws.slug ?? ws.id})`);
+    deps.writeOut(
+      `  ${index + 1}. ${ws.name ?? ws.slug ?? ws.id} (${ws.slug ?? ws.id})`,
+    );
   });
   const answer = (await deps.readLine("Workspace number: ")).trim();
   const picked = rows[Number(answer) - 1];
@@ -97,7 +95,12 @@ export async function runFolderAlign(
           EXIT_CODES.NOT_FOUND,
         );
       }
-      const picked = await pickWorkspace(deps, rows, flags.workspace, !!flags.yes);
+      const picked = await pickWorkspace(
+        deps,
+        rows,
+        flags.workspace,
+        !!flags.yes,
+      );
       if (deps.isInteractive && !flags.yes && !flags.workspace) {
         const answer = await deps.readLine(
           `Bind ${inspection.repoOwnerName} → ${picked.slug ?? picked.id} on ${normalizeEndpoint(target.url)}? [Y/n] `,
@@ -152,7 +155,9 @@ export async function runFolderStatus(
     let endpointDrift: string | null = null;
     try {
       const target = deps.resolveTarget();
-      if (normalizeEndpoint(target.url) !== normalizeEndpoint(binding.endpoint)) {
+      if (
+        normalizeEndpoint(target.url) !== normalizeEndpoint(binding.endpoint)
+      ) {
         endpointDrift = `active credential targets ${normalizeEndpoint(target.url)}`;
       }
     } catch {

@@ -61,7 +61,7 @@ async function run(
   const deps: ToolCommandDeps = {
     env: { STACKS_TOKEN: "tm_test_token" },
     configFile: () => options.config ?? null,
-    knownTools: null,
+    knownTools: new Set(manifest.tools.map((tool) => tool.name)),
     connect: async () => ({ caller, close: async () => undefined }),
     readStdin: async () => options.stdin ?? "",
     readFile: (path) => {
@@ -405,12 +405,7 @@ describe("round-trips — config defaults for required workspace/board", () => {
 
   it("--args workspaceId beats the config default (no injection)", async () => {
     const { rec } = await run(
-      [
-        "member",
-        "list",
-        "--args",
-        '{"workspaceId":"cmws7000000000000000000"}',
-      ],
+      ["member", "list", "--args", '{"workspaceId":"cmws7000000000000000000"}'],
       { config },
     );
     assert.equal(

@@ -1,3 +1,4 @@
+import type { ClientProbeDeps } from "../src/session/deps";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -9,7 +10,6 @@ import {
   hookCommands,
   installSource,
   pinnedHookTarget,
-  type ClientProbeDeps,
 } from "../src/commands/doctor-client";
 import type { PluginInvocation } from "../src/commands/plugin";
 

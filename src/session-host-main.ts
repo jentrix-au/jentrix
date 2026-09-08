@@ -8,8 +8,8 @@
  *        — the lifecycle-hook forwarder every plugin hook invokes
  *
  * `session-run` / `session-hook` are accepted as internal aliases (§17.2:
- * the public binary boundary is what changed; the runner's D16 delegate
- * execs this bin with its old verbs verbatim).
+ * old hook settings and active clients can still call them). They dispatch
+ * through the same implementations; see docs/compatibility.md.
  *
  * The HOOK path is ZERO-NETWORK by construction: it lazy-imports only the
  * ledger appender — never the host module, whose closure holds the MCP

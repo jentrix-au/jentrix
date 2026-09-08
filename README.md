@@ -41,7 +41,7 @@ irm https://tm.jentrix.ai/install.ps1 | iex                  # Windows PowerShel
 
 ```bash
 npm install -g @jentrix/cli
-jentrix --version                  # 0.7.1 (surface: 64 tools, file dated …)
+jentrix --version                  # version and bundled product-tool count
 jentrix login                      # OAuth in the browser; or export STACKS_TOKEN=tm_…
 jentrix whoami
 jentrix task list --board-id <id> --json | jq .
@@ -55,6 +55,27 @@ npx --yes --package @jentrix/cli jentrix --help
 the official plugins on their own; `jentrix session doctor` reports what is
 installed, who owns each provider's `jentrix` marketplace, whether the hooks
 are pinned, and how this build's contract compares with the server's.
+
+## Connected work and task labels
+
+Start Claude Code or Codex normally, then connect inside the provider:
+
+```bash
+jentrix folder align --workspace <workspace-slug>  # once per checkout
+jentrix session connect --provider codex          # or claude
+jentrix session align --task JEN-42
+jentrix task project add --task JEN-42 --project <project-slug>
+```
+
+Sessions use the folder's workspace. Projects are optional task labels; ID-based
+label edits also work outside a bound checkout. Human task keys require a bound
+workspace and are checked against the returned identity. `session claude` also
+supports foreground launch; Codex uses connect only. Capture and skeleton
+preferences are preserved unless you explicitly change them.
+
+The product CLI does not run Ops commands. An unreadable bundled tool manifest
+refuses raw tool calls with a reinstall instruction. See the exact migration
+refusals and remaining thin aliases in [compatibility](./docs/compatibility.md#local-command-migrations).
 
 ## Where the contract lives
 

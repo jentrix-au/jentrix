@@ -23,20 +23,20 @@ import { EXIT_CODES } from "../src/errors";
 import {
   alignmentMarkerPath,
   localConnectionKey,
-  readClaudeHookContext,
-  resolveProjectForSession,
+  writeAlignmentMarker,
+} from "../src/session/state";
+import { readClaudeHookContext } from "../src/session/provider-context";
+import {
   runSessionAttach,
   runSessionConnect,
-  runSessionDoctor,
-  runSessionEnd,
   runSessionStart,
-  runSessionStatus,
-  sessionCloseVerdict,
-  withCaller,
-  writeAlignmentMarker,
-  type SessionCommandDeps,
-  type SessionToolCaller,
-} from "../src/commands/session";
+} from "../src/session/connect";
+import { runSessionDoctor } from "../src/session/doctor";
+import { runSessionEnd, sessionCloseVerdict } from "../src/session/end";
+import { runSessionStatus } from "../src/session/status";
+import { withCaller } from "../src/session/runtime";
+import { type SessionCommandDeps } from "../src/session/deps";
+import { type SessionToolCaller } from "../src/tool-client";
 
 /**
  * Client-runtime v2: a checkout FOLDER-BOUND to ws_1 — the workspace scope
@@ -160,222 +160,6 @@ function deps(
   };
 }
 
-test("single repo match is preselected but still confirmed (AC7)", async () => {
-  const caller = fakeCaller({
-    resolve_projects_for_repo: () => ({ projects: [CANDIDATE] }),
-  });
-  const prompts: string[] = [];
-  const result = await resolveProjectForSession(
-    caller,
-    {
-      isInteractive: true,
-      readLine: async (prompt) => {
-        prompts.push(prompt);
-        return "";
-      },
-      writeOut: () => undefined,
-      writeErr: () => undefined,
-    },
-    "acme/api",
-    undefined,
-  );
-  assert.equal(result.projectId, "proj_1");
-  assert.match(prompts[0]!, /Atlas/);
-  assert.match(prompts[0]!, /Engineering/);
-});
-
-test("declining the confirmation creates nothing (§8.2)", async () => {
-  const caller = fakeCaller({
-    resolve_projects_for_repo: () => ({ projects: [CANDIDATE] }),
-  });
-  await assert.rejects(
-    resolveProjectForSession(
-      caller,
-      {
-        isInteractive: true,
-        readLine: async () => "n",
-        writeOut: () => undefined,
-        writeErr: () => undefined,
-      },
-      "acme/api",
-      undefined,
-    ),
-    /no session was created/,
-  );
-});
-
-test("multiple matches prompt; non-interactive requires --project (AC8)", async () => {
-  const second = { ...CANDIDATE, id: "proj_2", name: "Beacon", slug: "beacon" };
-  const caller = fakeCaller({
-    resolve_projects_for_repo: () => ({ projects: [CANDIDATE, second] }),
-  });
-  const picked = await resolveProjectForSession(
-    caller,
-    {
-      isInteractive: true,
-      readLine: async () => "2",
-      writeOut: () => undefined,
-      writeErr: () => undefined,
-    },
-    "acme/api",
-    undefined,
-  );
-  assert.equal(picked.projectId, "proj_2");
-
-  await assert.rejects(
-    resolveProjectForSession(
-      caller,
-      {
-        isInteractive: false,
-        readLine: async () => "",
-        writeOut: () => undefined,
-        writeErr: () => undefined,
-      },
-      "acme/api",
-      undefined,
-    ),
-    /PROJECT_REQUIRED: non-interactive/,
-  );
-});
-
-test("a workspace-pinned credential refuses discovery non-interactively but validates an exact --project (AC45)", async () => {
-  const caller: SessionToolCaller = {
-    async callTool({ name }) {
-      if (name === "resolve_projects_for_repo") {
-        return envelope({
-          error: {
-            code: "FORBIDDEN",
-            message:
-              "PROJECT_DISCOVERY_REQUIRES_UNPINNED_LOGIN: cross-workspace repository discovery needs an unpinned human credential",
-          },
-        });
-      }
-      throw new Error(`unexpected ${name}`);
-    },
-  };
-  await assert.rejects(
-    resolveProjectForSession(
-      caller,
-      {
-        isInteractive: false,
-        readLine: async () => "y",
-        writeOut: () => undefined,
-        writeErr: () => undefined,
-      },
-      "acme/api",
-      undefined,
-    ),
-    /PROJECT_DISCOVERY_REQUIRES_UNPINNED_LOGIN/,
-  );
-  const withFlag = await resolveProjectForSession(
-    caller,
-    {
-      isInteractive: true,
-      readLine: async () => "y",
-      writeOut: () => undefined,
-      writeErr: () => undefined,
-    },
-    "acme/api",
-    "proj_9",
-  );
-  assert.equal(withFlag.projectId, "proj_9");
-});
-
-test("a pinned credential gets the SAME confirmation picker over the pin's projects, behind a scope banner (AC45 preserved)", async () => {
-  // Discovery is still refused server-side; the CLI composes a SCOPED list
-  // from list_workspaces + list_projects and says so, instead of dead-ending.
-  const pinnedRefusal = () =>
-    envelope({
-      error: {
-        code: "FORBIDDEN",
-        message:
-          "PROJECT_DISCOVERY_REQUIRES_UNPINNED_LOGIN: cross-workspace repository discovery needs an unpinned human credential",
-      },
-    });
-  const caller: SessionToolCaller = {
-    async callTool({ name, arguments: args }) {
-      if (name === "resolve_projects_for_repo") return pinnedRefusal();
-      if (name === "list_workspaces") {
-        return {
-          structuredContent: {
-            workspaces: [{ id: "ws_pin", name: "Engineering", slug: "eng" }],
-          },
-        };
-      }
-      if (name === "list_projects") {
-        assert.equal((args as { workspaceId?: string }).workspaceId, "ws_pin");
-        return {
-          structuredContent: {
-            projects: [
-              { id: "proj_a", name: "Atlas", slug: "atlas" },
-              { id: "proj_b", name: "Beacon", slug: "beacon" },
-            ],
-          },
-        };
-      }
-      throw new Error(`unexpected ${name}`);
-    },
-  };
-  const out: string[] = [];
-  const picked = await resolveProjectForSession(
-    caller,
-    {
-      isInteractive: true,
-      readLine: async () => "2",
-      writeOut: (text) => out.push(text),
-      writeErr: () => undefined,
-    },
-    "acme/api",
-    undefined,
-  );
-  assert.equal(picked.projectId, "proj_b");
-  const banner = out.join("\n");
-  // The scope banner names the pinned workspace and states that other
-  // workspaces were NOT searched — a scoped answer must never read as
-  // "no other project uses this repo".
-  assert.match(banner, /Engineering/);
-  assert.match(banner, /not searched/i);
-
-  // A single project in the pin is preselected but still confirmed (AC7).
-  const single: SessionToolCaller = {
-    async callTool({ name }) {
-      if (name === "resolve_projects_for_repo") return pinnedRefusal();
-      if (name === "list_workspaces") {
-        return {
-          structuredContent: {
-            workspaces: [{ id: "ws_pin", name: "Engineering", slug: "eng" }],
-          },
-        };
-      }
-      if (name === "list_projects") {
-        return {
-          structuredContent: {
-            projects: [{ id: "proj_a", name: "Atlas", slug: "atlas" }],
-          },
-        };
-      }
-      throw new Error(`unexpected ${name}`);
-    },
-  };
-  const prompts: string[] = [];
-  const confirmed = await resolveProjectForSession(
-    single,
-    {
-      isInteractive: true,
-      readLine: async (prompt) => {
-        prompts.push(prompt);
-        return "";
-      },
-      writeOut: () => undefined,
-      writeErr: () => undefined,
-    },
-    "acme/api",
-    undefined,
-  );
-  assert.equal(confirmed.projectId, "proj_a");
-  assert.match(prompts[0]!, /Atlas/);
-});
-
 test("start creates the session BEFORE launching the host with a transient plan file (AC11, v2 workspace shape)", async () => {
   const root = boundCheckout();
   const caller = fakeCaller({
@@ -427,7 +211,7 @@ test("attach without trusted provider context is refused, never guessed (AC17/§
   // err[0] is the D16 rename notice (attach → connect); the refusal follows.
   assert.match(d.err[0]!, /session connect/);
   assert.match(d.err.join("\n"), /PROVIDER_SESSION_UNAVAILABLE/);
-  assert.match(d.err.join("\n"), /jentrix session codex/);
+  assert.match(d.err.join("\n"), /jentrix session connect --provider codex/);
 });
 
 test("attach uses the plugin's hook-recorded context for the current checkout (AC17)", () => {
@@ -562,58 +346,6 @@ test("connect binds the trusted provider session and converges idempotently (AC4
   assert.equal(code, 0);
   assert.match(d.out.join("\n"), /Reconnected to Jentrix session ses_2/);
   assert.match(d.out.join("\n"), /workspace acme/);
-});
-
-test("PROJECT_REPO_MISMATCH is self-service: offer to add the REPO link, then retry", async () => {
-  let createCalls = 0;
-  const linkArgs: Array<Record<string, unknown>> = [];
-  const caller = fakeCaller({
-    resolve_projects_for_repo: () => ({ projects: [CANDIDATE] }),
-    add_project_link: (args) => {
-      linkArgs.push(args);
-      return { ok: true };
-    },
-    create_agent_session: () => {
-      createCalls += 1;
-      if (createCalls === 1) {
-        throw new Error(
-          "PROJECT_REPO_MISMATCH: project proj_1 does not link repository acme/api. Ask a workspace admin to add the repo link (project settings → Linked items), then retry.",
-        );
-      }
-      return {
-        id: "ses_9",
-        workspaceId: "ws_1",
-        projectId: "proj_1",
-        status: "STARTING",
-      };
-    },
-  });
-  // The repo-link offer is the LEGACY --project path's flow (the v2 shape has
-  // no repo gate at all). Every prompt (project confirm, link offer) → "y".
-  const d = deps(caller, {
-    spoolRoot: process.env.TMPDIR ?? "/tmp",
-  });
-  const code = await runSessionStart("claude", { project: "proj_1" }, d);
-  assert.equal(code, 0);
-  assert.equal(createCalls, 2);
-  assert.deepEqual(linkArgs, [
-    { projectId: "proj_1", targetType: "REPO", targetId: "acme/api" },
-  ]);
-
-  // Non-interactive: no prompt — print the exact command instead.
-  const nonInteractive = fakeCaller({
-    resolve_projects_for_repo: () => ({ projects: [] }),
-    create_agent_session: () => {
-      throw new Error(
-        "PROJECT_REPO_MISMATCH: project proj_1 does not link repository acme/api. Ask a workspace admin to add the repo link (project settings → Linked items), then retry.",
-      );
-    },
-  });
-  const d2 = deps(nonInteractive, { isInteractive: false });
-  const code2 = await runSessionStart("claude", { project: "proj_1" }, d2);
-  assert.notEqual(code2, 0);
-  assert.match(d2.err.join("\n"), /add_project_link/);
-  assert.match(d2.err.join("\n"), /"targetId":"acme\/api"/);
 });
 
 test("status: a healthy live session never reads as a capture warning (M20.1 UX)", async () => {
@@ -946,142 +678,6 @@ test("doctor reports EVERY failure at once instead of one per round trip (Slice 
   assert.match(out, /spool/i);
 });
 
-test("doctor passes end to end and warns (not fails) on a missing explicit repo link", async () => {
-  const caller = fakeCaller({
-    get_token_context: () => ({
-      tokenId: "tok_1",
-      tokenName: "cli",
-      scopes: ["read", "write"],
-      storedScopes: ["read", "write"],
-      grandfathered: false,
-      workspacePinned: true,
-      workspaceId: "ws_1",
-    }),
-    get_project: () => ({
-      id: "proj_1",
-      name: "Atlas",
-      workspaceId: "ws_1",
-      links: [{ id: "l1", targetType: "DOC", targetId: "https://doc" }],
-    }),
-  });
-  const d = deps(caller, {
-    spoolRoot: join(mkdtempSync(join(tmpdir(), "stacks-doctor2-")), "spool"),
-  });
-  const code = await runSessionDoctor({ project: "proj_1" }, d);
-  assert.equal(code, 0);
-  const out = d.out.join("\n");
-  assert.match(out, /no explicit REPO link/i);
-  assert.match(out, /add_project_link/);
-  // AGE-951: the board precondition surfaces in the SAME pass as the repo one
-  // (it used to appear only after the repo blocker cleared), and stays a warn
-  // because align now self-provisions a board for a new task.
-  assert.match(out, /links no board/i);
-  assert.match(out, /auto-provision/i);
-});
-
-test("doctor reports the board link ok when the project links one", async () => {
-  const caller = fakeCaller({
-    get_token_context: () => ({
-      tokenId: "tok_1",
-      tokenName: "cli",
-      scopes: ["read", "write"],
-      storedScopes: ["read", "write"],
-      grandfathered: false,
-      workspacePinned: true,
-      workspaceId: "ws_1",
-    }),
-    get_project: () => ({
-      id: "proj_1",
-      name: "Atlas",
-      workspaceId: "ws_1",
-      links: [
-        { id: "l1", targetType: "REPO", targetId: "acme/api" },
-        { id: "l2", targetType: "BOARD", targetId: "board_1" },
-      ],
-    }),
-  });
-  const d = deps(caller, {
-    spoolRoot: join(mkdtempSync(join(tmpdir(), "stacks-doctor5-")), "spool"),
-  });
-  const code = await runSessionDoctor({ project: "proj_1" }, d);
-  assert.equal(code, 0);
-  const out = d.out.join("\n");
-  assert.match(out, /links 1 board/);
-});
-
-test("doctor --project resolves a SLUG on an unpinned token (STA-60)", async () => {
-  // `--project` is documented `<id-or-slug>`. The by-slug retry used to run
-  // only for a workspace-PINNED credential, so an ordinary unpinned token got
-  // a bare "Project not found" for the documented form.
-  const caller = fakeCaller({
-    get_token_context: () => ({
-      tokenId: "tok_1",
-      tokenName: "cli",
-      scopes: ["read", "write"],
-      storedScopes: ["read", "write"],
-      grandfathered: false,
-      workspacePinned: false,
-      workspaceId: null,
-    }),
-    list_workspaces: () => ({
-      workspaces: [{ id: "ws_other" }, { id: "ws_1" }],
-    }),
-    get_project: (args) => {
-      if (args.projectId) throw new Error("Project not found");
-      // A slug is unique only WITHIN a workspace — the first one misses.
-      if (args.workspaceId !== "ws_1") throw new Error("Project not found");
-      return {
-        id: "proj_1",
-        name: "Atlas",
-        workspaceId: "ws_1",
-        links: [
-          { id: "l1", targetType: "REPO", targetId: "acme/api" },
-          { id: "l2", targetType: "BOARD", targetId: "board_1" },
-        ],
-      };
-    },
-  });
-  const d = deps(caller, {
-    spoolRoot: join(
-      mkdtempSync(join(tmpdir(), "stacks-doctor-slug-")),
-      "spool",
-    ),
-  });
-  const code = await runSessionDoctor({ project: "atlas" }, d);
-  assert.equal(code, 0);
-  assert.match(d.out.join("\n"), /Atlas \(proj_1\)/);
-});
-
-test("doctor --project keeps the by-id error when NO workspace holds the slug (STA-60)", async () => {
-  const caller = fakeCaller({
-    get_token_context: () => ({
-      tokenId: "tok_1",
-      tokenName: "cli",
-      scopes: ["read", "write"],
-      storedScopes: ["read", "write"],
-      grandfathered: false,
-      workspacePinned: false,
-      workspaceId: null,
-    }),
-    list_workspaces: () => ({ workspaces: [{ id: "ws_1" }] }),
-    get_project: () => {
-      throw new Error("Project not found");
-    },
-  });
-  const d = deps(caller, {
-    spoolRoot: join(
-      mkdtempSync(join(tmpdir(), "stacks-doctor-slug2-")),
-      "spool",
-    ),
-  });
-  const code = await runSessionDoctor({ project: "nope" }, d);
-  // Still a blocker, and still exits NON-ZERO — the exit code has always
-  // tracked the verdict (`ok:false` ⇒ 1); the TPM round's "exits 0" note was
-  // a shell capture artifact, and this pins the real behavior.
-  assert.equal(code, 1);
-  assert.match(d.out.join("\n"), /did not resolve/i);
-});
-
 test("withCaller hands REST legs the token re-read AFTER connect (expired-OAuth one-shot)", async () => {
   // connect performs the C4.2 refresh and PERSISTS the rotated pair; the
   // target it was handed still holds the expired token. A flow that mixes MCP
@@ -1101,85 +697,6 @@ test("withCaller hands REST legs the token re-read AFTER connect (expired-OAuth 
   });
   const seen = await withCaller(d, async (_caller, target) => target.token);
   assert.equal(seen, "tmo_fresh");
-});
-
-test("doctor --project FAILS when discovery disowns the project — never 'Ready' before a refused attach (AGE-936)", async () => {
-  const caller = fakeCaller({
-    get_token_context: () => ({
-      tokenId: "tok_1",
-      tokenName: "cli",
-      scopes: ["read", "write"],
-      storedScopes: ["read", "write"],
-      grandfathered: false,
-      workspacePinned: false,
-      workspaceId: null,
-    }),
-    get_project: () => ({
-      id: "proj_1",
-      name: "Atlas",
-      workspaceId: "ws_1",
-      links: [{ id: "l1", targetType: "DOC", targetId: "https://doc" }],
-    }),
-    // The server's own matching does NOT map acme/api to proj_1 — the attach
-    // gate will refuse fail-closed, so doctor must predict that, not hedge.
-    resolve_projects_for_repo: () => ({
-      projects: [
-        {
-          id: "proj_2",
-          slug: "other",
-          name: "Other",
-          workspace: { id: "ws_2", slug: "w2", name: "W2" },
-          repoMatch: "project link",
-        },
-      ],
-    }),
-  });
-  const d = deps(caller, {
-    spoolRoot: join(mkdtempSync(join(tmpdir(), "stacks-doctor4-")), "spool"),
-  });
-  const code = await runSessionDoctor({ project: "proj_1" }, d);
-  assert.equal(code, 1);
-  const out = d.out.join("\n");
-  assert.match(out, /PROJECT_REPO_MISMATCH/);
-  assert.match(out, /will refuse/i);
-  assert.match(out, /jentrix tool add_project_link --args/);
-  assert.match(out, /"projectId":"proj_1"/);
-  assert.match(out, /"targetId":"acme\/api"/);
-
-  // And the converse: discovery matching the project PROVES the gate — ok, 0.
-  const matched = fakeCaller({
-    get_token_context: () => ({
-      tokenId: "tok_1",
-      tokenName: "cli",
-      scopes: ["read", "write"],
-      storedScopes: ["read", "write"],
-      grandfathered: false,
-      workspacePinned: false,
-      workspaceId: null,
-    }),
-    get_project: () => ({
-      id: "proj_1",
-      name: "Atlas",
-      workspaceId: "ws_1",
-      links: [],
-    }),
-    resolve_projects_for_repo: () => ({
-      projects: [
-        {
-          id: "proj_1",
-          slug: "atlas",
-          name: "Atlas",
-          workspace: { id: "ws_1", slug: "w1", name: "W1" },
-          repoMatch: "board github sync",
-        },
-      ],
-    }),
-  });
-  const d2 = deps(matched, {
-    spoolRoot: join(mkdtempSync(join(tmpdir(), "stacks-doctor5-")), "spool"),
-  });
-  assert.equal(await runSessionDoctor({ project: "proj_1" }, d2), 0);
-  assert.match(d2.out.join("\n"), /matched by repository discovery/i);
 });
 
 test("doctor v2: an unbound folder is THE blocker; a project-less repo is informational (never PROJECT_REQUIRED)", async () => {
@@ -1206,78 +723,8 @@ test("doctor v2: an unbound folder is THE blocker; a project-less repo is inform
   assert.match(out, /FOLDER_NOT_ALIGNED/);
   assert.match(out, /jentrix folder align --workspace/);
   assert.doesNotMatch(out, /PROJECT_REQUIRED/);
-  assert.match(out, /optional in v2/i);
+  assert.match(out, /optional task labels/i);
   assert.match(out, /task project add/);
-});
-
-test("GOAL: pinned credential + project with no REPO link reaches a bound, capturing session through prompts alone", async () => {
-  // The end-to-end objective scenario: workspace-pinned credential, a
-  // --project that does NOT link the checkout repo, `session attach
-  // --provider claude --project <id> --watch`. Must succeed via prompts only —
-  // no UI visit (the repo link is added through add_project_link on a prompt)
-  // and no hand-run mkdir (the spool root does not exist yet).
-  let linked = false;
-  const attachAttempts: number[] = [];
-  const caller = fakeCaller({
-    resolve_projects_for_repo: () => {
-      throw new Error(
-        "PROJECT_DISCOVERY_REQUIRES_UNPINNED_LOGIN: cross-workspace repository discovery needs an unpinned human credential",
-      );
-    },
-    add_project_link: (args) => {
-      assert.deepEqual(args, {
-        projectId: "proj_pin",
-        targetType: "REPO",
-        targetId: "acme/api",
-      });
-      linked = true;
-      return { ok: true };
-    },
-    attach_agent_session: () => {
-      attachAttempts.push(Date.now());
-      if (!linked) {
-        throw new Error(
-          "PROJECT_REPO_MISMATCH: project proj_pin does not link repository acme/api. Ask a workspace admin to add the repo link (project settings → Linked items), then retry.",
-        );
-      }
-      return {
-        id: "ses_goal",
-        workspaceId: "ws_pin",
-        projectId: "proj_pin",
-        status: "ACTIVE",
-        converged: false,
-      };
-    },
-    get_agent_session: () => ({ id: "ses_goal", status: "COMPLETED" }),
-  });
-  const freshSpool = join(
-    mkdtempSync(join(tmpdir(), "stacks-goal-")),
-    "never-created",
-    "session-spool",
-  );
-  const d = deps(caller, {
-    spoolRoot: freshSpool,
-    readLine: async () => "y", // the only operator input: accept the link offer
-  });
-  const code = await runSessionAttach(
-    {
-      provider: "claude",
-      providerSession: "claude_thread_goal",
-      project: "proj_pin",
-      transcriptPath: "/t/goal.jsonl",
-      watch: true,
-    },
-    d,
-  );
-  assert.equal(code, 0);
-  assert.equal(linked, true, "the REPO link was added via the prompt");
-  assert.equal(attachAttempts.length, 2, "mismatch then retry, one round");
-  assert.equal(
-    d.hostPlans.length,
-    1,
-    "the capture host launched (bound + capturing)",
-  );
-  assert.match(d.out.join("\n"), /Connected Jentrix session ses_goal/);
 });
 
 test("attach without --watch starts a DETACHED capture host (F-4/AGE-930: capture must actually run)", async () => {
@@ -1367,12 +814,12 @@ test("attach without --watch starts a DETACHED capture host (F-4/AGE-930: captur
 });
 
 test("Codex attach starts one hook host and reuses it on convergence", async () => {
+  const root = boundCheckout();
   const caller = fakeCaller({
-    resolve_projects_for_repo: () => ({ projects: [CANDIDATE] }),
     attach_agent_session: () => ({
       id: "ses_codex_attach",
       workspaceId: "ws_1",
-      projectId: "proj_1",
+      projectId: null,
       status: "ACTIVE",
       converged: false,
     }),
@@ -1380,6 +827,8 @@ test("Codex attach starts one hook host and reuses it on convergence", async () 
   const spool = mkdtempSync(join(tmpdir(), "stacks-codex-attach-"));
   const spawned: string[] = [];
   const d = deps(caller, {
+    cwd: () => root,
+    git: gitAt(root),
     // Explicit --provider-session wins before conflicting environment ids.
     env: {
       HOME: "/home/test",
@@ -1407,7 +856,6 @@ test("Codex attach starts one hook host and reuses it on convergence", async () 
   const flags = {
     provider: "codex" as const,
     providerSession: "thread-1",
-    project: "proj_1",
   };
   assert.equal(await runSessionAttach({ ...flags }, d), 0);
   assert.equal(await runSessionAttach({ ...flags }, d), 0);

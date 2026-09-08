@@ -1,20 +1,21 @@
+import { structuredToolResult } from "../tool-client";
+import { isUnauthorizedError } from "../errors";
 /**
- * M20.1 §15 — the connected-session HOST: the runner-side orchestration that
- * launches (or drives) the interactive provider with capture running beside
- * it. Invoked by `stacks-runner session-run --plan-stdin`; the CLI (which may
- * not import provider SDKs — LRO-AC14) hands it a transient plan over stdin.
+ * The bundled connected-session host. The CLI starts `jentrix-session-host
+ * run --plan-file <path>` with a transient plan and a separate credential
+ * channel. Claude launch and Claude/Codex watch share the same bridge.
  *
  * Claude: the provider's own interactive UI runs untouched; a temp
  * hooks-settings file makes the SUPPORTED lifecycle hooks append their stdin
- * JSON to the session's hooks file via `stacks-runner session-hook`, giving
+ * JSON to the session's hooks file via `jentrix-session-host hook`, giving
  * the bridge the TRUSTED `session_id` + `transcript_path` (AC17) and the
  * transcript tail to map. Hooks never carry credentials or transcript content
  * in argv.
  *
  * Codex: plugin watch mode consumes the supported lifecycle hook ledger for
  * one exact task id and token receipts from the rollout path those hooks
- * report. `jentrix session codex` remains the SDK-driven terminal fallback,
- * with every `runStreamed` event mapped deterministically.
+ * report, or the exact rollout identified by the trusted provider session.
+ * Codex starts normally; this host only connects beside it.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -32,14 +33,12 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import {
   createConfigBearerSource,
-  isUnauthorizedishError,
   staticBearerSource,
   type SessionBearerSource,
 } from "./session-auth.js";
@@ -59,7 +58,6 @@ import {
   codexOpeningPromptOf,
   lastCodexRolloutModelOf,
   mapCodexRolloutLine,
-  mapCodexThreadEvent,
 } from "./session-codex-events.js";
 import { mapCodexHook } from "./session-codex-hooks.js";
 import { createSessionRedactor } from "./session-redact.js";
@@ -265,20 +263,13 @@ export function sessionCallTool(
       try {
         return await attempt(bearer, name, args);
       } catch (error) {
-        if (!isUnauthorizedishError(error)) throw error;
+        if (!isUnauthorizedError(error)) throw error;
         const next = await bearerSource.refresh(bearer);
         if (!next || next === bearer) throw error;
         return attempt(next, name, args);
       }
     });
-    if (res.isError) {
-      const text =
-        Array.isArray(res.content) && res.content[0] && "text" in res.content[0]
-          ? (res.content[0] as { text: string }).text
-          : JSON.stringify(res.content);
-      throw new Error(`${name} failed: ${text}`);
-    }
-    return (res.structuredContent ?? {}) as Record<string, unknown>;
+    return structuredToolResult(res);
   };
 }
 
@@ -337,7 +328,7 @@ export function claudeHookSettings(
           type: "command",
           // argv carries only the runner binary, the session DIRECTORY, and
           // the event name — never credentials or transcript content (§15.1).
-          command: `${runnerBin} session-hook --dir ${JSON.stringify(sessionDir)} --event ${event}`,
+          command: `${runnerBin} hook --dir ${JSON.stringify(sessionDir)} --event ${event}`,
         },
       ],
     },
@@ -476,7 +467,7 @@ export async function runClaudeSessionHost(
   const watch = plan.mode === "watch";
   let child: ChildProcess | null = null;
   if (!watch) {
-    const runnerBin = process.argv[1] ?? "stacks-runner";
+    const runnerBin = process.argv[1] ?? "jentrix-session-host";
     const settingsPath = join(sessionDir, "claude-hooks.json");
     writeFileSync(
       settingsPath,
@@ -1054,216 +1045,16 @@ export async function runClaudeSessionHost(
   return finalCode;
 }
 
-/**
- * Run a CODEX session: a persistent SDK Thread driven as a terminal REPL —
- * `runStreamed` per turn, structured events mapped deterministically, resume
- * through `resumeThread` (§15.2).
- */
-export async function runCodexSessionHost(
-  plan: SessionRunPlan,
-  deps: HostDeps = {},
-): Promise<number> {
-  const log = deps.log ?? ((line: string) => process.stderr.write(`${line}\n`));
-  const spoolRoot = plan.spoolRoot ?? defaultSpoolRoot();
-  const spool = new SessionSpool(spoolRoot, plan.sessionId);
-  // AGE-929: local liveness marker — `jentrix session status` probes this pid.
-  writeHostMarker(spool.directory, {
-    pid: process.pid,
-    provider: "codex",
-    mode: "launch",
-  });
-  const codexBearerSource = bearerSourceOf(plan, log);
-  // JEN-456: one shared rate-limit wait budget for this host (see the Claude
-  // host above).
-  const rateLimitBudget = createRateLimitBudget();
-  const bridge = new SessionBridge({
-    jentrixBaseUrl: plan.jentrixBaseUrl,
-    bearer: () => codexBearerSource.get(),
-    onUnauthorized: (failed) => codexBearerSource.refresh(failed),
-    sessionId: plan.sessionId,
-    provider: "codex",
-    spool,
-    redactor: createSessionRedactor({ homedir: homedir() }),
-    callTool: sessionCallTool(
-      plan.mcpUrl,
-      codexBearerSource,
-      plan.sessionId,
-      rateLimitBudget,
-    ),
-    rateLimitBudget,
-    fetchImpl: deps.fetchImpl,
-    collectSkeleton: plan.collectSkeleton !== false,
-    log,
-  });
-  bridge.recordCapabilities({
-    provider: "codex",
-    providerVersion: null,
-    observable: [
-      "session",
-      "assistant_message",
-      "tool_call",
-      "command",
-      "file_change",
-      "usage",
-      "error",
-    ],
-    notObservable: ["plan", "tool_result"],
-  });
-  bridge.startObserving();
-
-  // Provider SDK loaded lazily so probe/setup paths never touch it.
-  const { Codex } = (await import("@openai/codex-sdk")) as {
-    Codex: new (opts?: Record<string, unknown>) => {
-      startThread(opts?: Record<string, unknown>): CodexThreadLike;
-      resumeThread(id: string, opts?: Record<string, unknown>): CodexThreadLike;
-    };
-  };
-  interface CodexThreadLike {
-    id?: string | null;
-    runStreamed(
-      prompt: string,
-    ): Promise<{ events: AsyncIterable<Record<string, unknown>> }>;
-  }
-  const codex = new Codex(
-    plan.executablePath ? { codexPathOverride: plan.executablePath } : {},
-  );
-  const thread = plan.resumeProviderSessionId
-    ? codex.resumeThread(plan.resumeProviderSessionId, {
-        workingDirectory: plan.repoRoot,
-        skipGitRepoCheck: true,
-      })
-    : codex.startThread({
-        workingDirectory: plan.repoRoot,
-        skipGitRepoCheck: true,
-      });
-
-  let bound = Boolean(plan.resumeProviderSessionId);
-  // TPM Slice 2 (AC2.4): the model the runtime last named via turn_context;
-  // null until one is observed — Codex receipts then stay in the null-model
-  // bucket rather than carrying a guess.
-  let currentModel: string | null = null;
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (prompt: string) =>
-    new Promise<string | null>((resolve) => {
-      rl.question(prompt, (answer) => resolve(answer));
-      rl.once("close", () => resolve(null));
-    });
-
-  log("Codex connected session — empty line or Ctrl-D ends the session.");
-  let outcome: "COMPLETED" | "INTERRUPTED" = "COMPLETED";
-  try {
-    for (;;) {
-      const input = await ask("codex> ");
-      if (input === null || input.trim() === "") break;
-      const turnId = `turn:${Date.now()}`;
-      bridge.markTurnStarted(turnId);
-      bridge.record({ kind: "user_message", payload: { text: input } });
-      try {
-        const { events } = await thread.runStreamed(input);
-        for await (const raw of events) {
-          const mapped = mapCodexThreadEvent(raw);
-          if (mapped.unrecognized) bridge.countUnrecognized();
-          // TPM Slice 2 (AC2.4): a turn_context names the model for the
-          // turns that follow — observed, and stamped onto their receipts.
-          if (mapped.modelId) {
-            currentModel = mapped.modelId;
-            bridge.observeModel(mapped.modelId);
-          }
-          if (mapped.threadId && !bound) {
-            bound = true;
-            try {
-              await bridge.tool("attach_agent_session", {
-                sessionId: plan.sessionId,
-                provider: "codex",
-                connection: {
-                  kind: "local",
-                  installationId: plan.installationId,
-                },
-                providerSessionId: mapped.threadId,
-                idempotencyKey: `bind:${plan.sessionId}:${mapped.threadId}`,
-              });
-              log(`Capture connected · provider thread ${mapped.threadId}`);
-            } catch (error) {
-              log(
-                `capture: provider binding failed (${error instanceof Error ? error.message : "unknown"})`,
-              );
-            }
-          }
-          if (mapped.event) {
-            const recorded = bridge.record({
-              ...mapped.event,
-              at: new Date().toISOString(),
-              payload:
-                mapped.event.kind === "usage"
-                  ? {
-                      ...(mapped.event.payload as object),
-                      turnId,
-                      // TPM Slice 2 (AC2.4): the model the runtime last named
-                      // for this thread rides the receipt — absent when no
-                      // turn_context was ever observed (null-model bucket,
-                      // disclosed, never guessed).
-                      ...(currentModel ? { modelId: currentModel } : {}),
-                    }
-                  : mapped.event.payload,
-            });
-            if (
-              recorded.kind === "assistant_message" &&
-              typeof (recorded.payload as { text?: string })?.text === "string"
-            ) {
-              process.stdout.write(
-                `${(recorded.payload as { text: string }).text}\n`,
-              );
-            }
-          }
-        }
-      } catch (error) {
-        outcome = "INTERRUPTED";
-        bridge.recordGap(
-          `provider turn failed: ${error instanceof Error ? error.message : "unknown"}`,
-        );
-        log("codex turn failed — session will close as INTERRUPTED");
-        break;
-      }
-      bridge.markTurnEnded(turnId);
-      await bridge.flushParts().catch(() => undefined);
-      await bridge.maybeHeartbeat();
-    }
-  } finally {
-    rl.close();
-  }
-
-  const end = await endRepoState(plan.repoRoot);
-  const result = await bridge.complete({ outcome, end }).catch(() => null);
-  if (!result) {
-    markHostExited(spool.directory, 1);
-    return 1;
-  }
-  log(
-    result.captureComplete
-      ? `Session ${plan.sessionId} closed · capture complete · output ${result.finalResponseArtifactId ?? "not observed"}`
-      : `Session ${plan.sessionId} closed · CAPTURE PENDING (${result.pendingParts} part(s))`,
-  );
-  const finalCode = result.captureComplete ? 0 : 1;
-  markHostExited(spool.directory, finalCode);
-  return finalCode;
-}
-
 export async function runSessionHost(
   plan: SessionRunPlan,
   deps: HostDeps = {},
 ): Promise<number> {
   if (plan.mode !== "watch" && plan.provider === "codex") {
-    // Client-runtime v2 (G6/§18): the CLI-shipped host carries NO provider
-    // SDK, and Codex LAUNCH mode is the one arm that needs one
-    // (`@openai/codex-sdk` below is deliberately left external and
-    // unreachable here). The v2 shape is connect-beside: start Codex
-    // yourself, then bind the live task.
+    // Defensive migration refusal for old or malformed launch plans.
     process.stderr.write(
       "CODEX_LAUNCH_UNAVAILABLE: the bundled session host cannot start a Codex conversation (no provider SDK ships with @jentrix/cli). Start Codex yourself, then run `jentrix session connect --provider codex` — capture attaches beside it.\n",
     );
     return 2;
   }
-  return plan.mode === "watch" || plan.provider === "claude"
-    ? runClaudeSessionHost(plan, deps)
-    : runCodexSessionHost(plan, deps);
+  return runClaudeSessionHost(plan, deps);
 }

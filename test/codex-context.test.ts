@@ -7,8 +7,8 @@ import { describe, it } from "node:test";
 import {
   readCodexHookContext,
   readCurrentProviderHookContext,
-  UsageError,
-} from "../src/commands/session";
+} from "../src/session/provider-context";
+import { UsageError } from "../src/tool-client";
 
 function line(
   event: string,

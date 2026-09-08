@@ -1,0 +1,21 @@
+Usage: jentrix session align [options]
+
+Anchor THIS session's next work + telemetry to a task (or session level) with an
+accountable owner — flag-driven, no wizard, no Project.
+
+Options:
+  --task <id-or-key>     the aligned work item (task id or key)
+  --session-level        no task — "session-level work"
+  --owner <user-id>      accountable human owner (default: you)
+  --agent <label>        producer label for this session
+  --agent-emoji <emoji>  emoji shown before the producer label
+  --capture              TRACE capture on for this session
+  --no-capture           TRACE capture off
+  --skeleton             activity skeleton on
+  --no-skeleton          activity skeleton off
+  --budget <tokens>      per-session token budget
+  --no-budget            disarm the token budget
+  --provider <provider>  provider of the running session (default: detected from
+                         hooks) (choices: "claude", "codex")
+  --json                 stable JSON output
+  -h, --help             display help for command

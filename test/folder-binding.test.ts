@@ -32,16 +32,13 @@ import {
   runFolderClear,
   runFolderStatus,
 } from "../src/commands/folder";
-import {
-  runSessionAlign,
-  runSessionStatus,
-  writeAlignmentMarker,
-} from "../src/commands/session";
+import { runSessionAlign } from "../src/session/alignment";
+import { runSessionStatus } from "../src/session/status";
+import { writeAlignmentMarker } from "../src/session/state";
+import { ToolCallError } from "../src/tool-client";
 import { runTaskProject } from "../src/commands/task-project";
-import type {
-  SessionCommandDeps,
-  SessionToolCaller,
-} from "../src/commands/session";
+import type { SessionCommandDeps } from "../src/session/deps";
+import type { SessionToolCaller } from "../src/tool-client";
 
 const BINDING: FolderBinding = {
   version: 1,
@@ -269,7 +266,7 @@ function alignWorld(dir: string, spool: string) {
     get_task: (args) => {
       assert.equal(args.workspaceId, "ws_1");
       assert.equal(args.number, 42);
-      return { id: "task_42", key: "ACM-42" };
+      return { id: "task_42", key: "ACM-42", workspaceId: "ws_1" };
     },
     align_agent_session: (args) => {
       aligns.push(args);
@@ -388,7 +385,7 @@ test("session align: a session ALREADY on the task reports NOT_REQUIRED — sett
       taskId: "task_42",
       updatedAt: "2026-08-29T01:00:00.000Z",
     }),
-    get_task: () => ({ id: "task_42", key: "ACM-42" }),
+    get_task: () => ({ id: "task_42", key: "ACM-42", workspaceId: "ws_1" }),
     align_agent_session: () => ({
       alignment: {
         version: 2,
@@ -492,7 +489,12 @@ test("session align with no transcript: BOUND BUT NOT RECORDING + telemetry sour
   );
   assert.equal(spawned.length, 1);
   assert.doesNotMatch(d2.err.join("\n"), /NOT RECORDING/);
-  const payload = JSON.parse(d2.out.at(-1)!) as {
+  assert.equal(
+    d2.out.length,
+    1,
+    "starting a host must not prepend prose to JSON",
+  );
+  const payload = JSON.parse(d2.out.join("\n")) as {
     telemetrySource?: { source?: string };
   };
   assert.equal(payload.telemetrySource?.source, "rollout-fallback");
@@ -620,7 +622,7 @@ test("session status with no id resolves this provider session's alignment and p
 
 // --- task project labels (§15.4) --------------------------------------------
 
-test("task project add resolves key + slug, links idempotently, and DISCLOSES the worker-scope effect", async () => {
+test("task project add resolves an ID + slug and links idempotently without folder binding", async () => {
   const linked: Array<Record<string, unknown>> = [];
   const caller = fakeCaller({
     get_task: (args) => {
@@ -628,7 +630,7 @@ test("task project add resolves key + slug, links idempotently, and DISCLOSES th
       return { id: "task_9", key: "ACM-9", workspaceId: "ws_1" };
     },
     get_project: () => {
-      throw new Error("not an id");
+      throw new ToolCallError("not an id", "NOT_FOUND");
     },
     list_projects: () => ({
       projects: [{ id: "prj_l", name: "Launch", slug: "launch" }],
@@ -648,5 +650,5 @@ test("task project add resolves key + slug, links idempotently, and DISCLOSES th
   assert.deepEqual(linked, [
     { projectId: "prj_l", targetType: "TASK", targetId: "task_9" },
   ]);
-  assert.match(d.out.join("\n"), /governed-worker ownership graph/);
+  assert.doesNotMatch(d.out.join("\n"), /governed-worker/);
 });

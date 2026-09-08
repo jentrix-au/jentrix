@@ -29,7 +29,8 @@ import { posix, win32 } from "node:path";
 import { Command } from "commander";
 
 import { callTool, type ToolCaller } from "../call";
-import { isUnauthorizedError, unauthorizedMessage } from "../client";
+import { unauthorizedMessage } from "../client";
+import { isUnauthorizedError } from "../errors";
 import {
   ConfigError,
   resolveConfig,

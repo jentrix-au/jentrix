@@ -135,10 +135,7 @@ export interface SetupCommandDeps {
    * folder alignment only — no Project, no session). Wired to
    * `runFolderAlign` with the session deps in main.ts.
    */
-  folderAlign(flags: {
-    workspace?: string;
-    yes?: boolean;
-  }): Promise<number>;
+  folderAlign(flags: { workspace?: string; yes?: boolean }): Promise<number>;
   readLine(prompt: string): Promise<string>;
   writeOut(text: string): void;
   writeErr(text: string): void;
@@ -297,9 +294,7 @@ async function installToolchain(deps: SetupCommandDeps): Promise<number> {
   }
 
   // Client-runtime v2 (§18): the session host ships INSIDE @jentrix/cli —
-  // setup installs NO @jentrix/runner. The runner remains an ops-plane worker
-  // package installed by operators who run workers, never a product
-  // prerequisite.
+  // The session host ships in this CLI; setup installs no runner package.
 
   // JEN-468: a 0.5.x install left the retired runner behind, its shims still
   // on PATH and callable. Said, not removed: the pre-0.6.0 plugin's hooks

@@ -1,32 +1,6 @@
-/**
- * Session-host bearer resolution (capture-off telemetry loss, 2026-08-08).
- *
- * The host used to hold the ONE bearer its plan was built with. An OAuth
- * access token (`tmo_`) lives ≤1h and is revoked the instant any concurrent
- * CLI invocation rotates the refresh token — live evidence (session
- * cmsk80my000ib04jvsrvlzf9q): host spawned 10:24:26 with the freshest token,
- * a `jentrix push` rotated at 10:26:49, the host's completion 401'd at
- * 10:26:55 and the whole usage rollup died with it.
- *
- * Fix: the host resolves its bearer through the SAME config file the CLI
- * persists rotations to. Dependency firewall: this MIRRORS the CLI's
- * `saveOAuthSession` read-merge-atomic-rename and `refreshAccessToken`
- * (cli/src/config.ts, cli/src/oauth.ts) — it never imports them. Server-side
- * rotation is single-use and a replayed refresh token is a benign
- * `invalid_grant` (no family revocation), so the loser of a concurrent
- * refresh race re-reads the file and adopts the winner's tokens; both sides
- * write atomically, so neither corrupts the other.
- */
-
-import { randomBytes } from "node:crypto";
-import {
-  chmodSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname } from "node:path";
+/** Long-lived host coordination over the package's shared OAuth/config primitives. */
+import { readConfigFile, type JentrixConfigFile } from "../config";
+import { maybeRefreshOAuthToken, sameOAuthAuthority } from "../oauth-session";
 
 export interface SessionBearerSource {
   /** The bearer to use for the NEXT request (freshest known). */
@@ -43,57 +17,6 @@ export interface SessionBearerSource {
 /** A bare PAT (or a plan with no configPath): no rotation, no recovery. */
 export function staticBearerSource(bearer: string): SessionBearerSource {
   return { get: () => bearer, refresh: async () => null };
-}
-
-interface OAuthRecord {
-  refreshToken: string;
-  expiresAt: string;
-  clientId: string;
-  tokenEndpoint: string;
-  scope?: string;
-}
-
-interface ConfigShape {
-  token?: string;
-  oauth?: OAuthRecord;
-  [key: string]: unknown;
-}
-
-function readConfig(configPath: string): ConfigShape | null {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-      return null;
-    return parsed as ConfigShape;
-  } catch {
-    return null;
-  }
-}
-
-/** Mirror of the CLI's 0600 tmp + `wx` + rename atomic config write. */
-function writeConfig(configPath: string, config: ConfigShape): void {
-  mkdirSync(dirname(configPath), { recursive: true });
-  const tmp = `${configPath}.tmp.${process.pid}.${randomBytes(6).toString("hex")}`;
-  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, {
-    mode: 0o600,
-    flag: "wx",
-  });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, configPath);
-}
-
-function oauthRecordOf(config: ConfigShape | null): OAuthRecord | null {
-  const oauth = config?.oauth;
-  if (
-    oauth &&
-    typeof oauth.refreshToken === "string" &&
-    oauth.refreshToken.length > 0 &&
-    typeof oauth.tokenEndpoint === "string" &&
-    typeof oauth.clientId === "string"
-  ) {
-    return oauth;
-  }
-  return null;
 }
 
 /**
@@ -113,7 +36,6 @@ export function createConfigBearerSource(opts: {
   /** Injectable clock (tests). */
   now?: () => number;
 }): SessionBearerSource {
-  const doFetch = opts.fetchImpl ?? fetch;
   const log = opts.log ?? (() => undefined);
   const now = opts.now ?? Date.now;
   // One refresh in flight per process — concurrent heartbeat/flush/completion
@@ -128,70 +50,45 @@ export function createConfigBearerSource(opts: {
   let lastProduced: { bearer: string; at: number } | null = null;
   let halted = false;
 
-  const get = (): string => {
-    const token = readConfig(opts.configPath)?.token;
-    return typeof token === "string" && token.length > 0
-      ? token
-      : opts.fallback;
+  const read = (): JentrixConfigFile | null => {
+    try {
+      return readConfigFile(opts.configPath);
+    } catch {
+      return null;
+    }
   };
+  // Follow rotations, never a new login for a different token endpoint/client.
+  let authority = read()?.oauth;
+  const currentConfig = (): JentrixConfigFile | null => {
+    const config = read();
+    if (authority && !sameOAuthAuthority(authority, config?.oauth)) return null;
+    authority ??= config?.oauth;
+    return config;
+  };
+  const get = (): string => currentConfig()?.token || opts.fallback;
 
   const refreshOnce = async (failedBearer: string): Promise<string | null> => {
-    // Someone else (the CLI, or a sibling failure path here) already rotated.
-    const current = get();
-    if (current !== failedBearer) return current;
-
-    const config = readConfig(opts.configPath);
-    const oauth = oauthRecordOf(config);
-    if (!oauth) return null;
-
+    const config = currentConfig();
+    if (!config?.token) return null;
+    if (!config.oauth)
+      return config.token !== failedBearer ? config.token : null;
     try {
-      const res = await doFetch(oauth.tokenEndpoint, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: oauth.refreshToken,
-          client_id: oauth.clientId,
-        }).toString(),
+      const token = await maybeRefreshOAuthToken({
+        configPath: opts.configPath,
+        accessToken: failedBearer,
+        oauth: config.oauth,
+        force: true,
+        fetchImpl: opts.fetchImpl,
+        now,
       });
-      if (!res.ok) throw new Error(`token endpoint ${res.status}`);
-      const pair = (await res.json()) as {
-        access_token?: string;
-        refresh_token?: string;
-        expires_in?: number;
-        scope?: string;
-      };
-      if (!pair.access_token || !pair.refresh_token) {
-        throw new Error("token endpoint returned no pair");
-      }
-      const expiresAt = new Date(
-        Date.now() + (pair.expires_in ?? 3600) * 1000,
-      ).toISOString();
-      // Read-merge-write so a concurrent writer's other fields survive.
-      writeConfig(opts.configPath, {
-        ...(readConfig(opts.configPath) ?? {}),
-        token: pair.access_token,
-        oauth: {
-          refreshToken: pair.refresh_token,
-          expiresAt,
-          clientId: oauth.clientId,
-          tokenEndpoint: oauth.tokenEndpoint,
-          ...(pair.scope ? { scope: pair.scope } : {}),
-        },
-      });
-      log("bearer refreshed (session host rotated the OAuth token)");
-      return pair.access_token;
-    } catch (error) {
-      // Lost the single-use race (invalid_grant) or the endpoint failed —
-      // adopt whatever a concurrent winner persisted, else give up honestly.
-      const after = get();
-      if (after !== failedBearer) {
-        log("bearer refreshed by a concurrent process — adopted");
-        return after;
-      }
+      if (token === failedBearer) return null;
       log(
-        `bearer refresh failed (${error instanceof Error ? error.message : String(error)})`,
+        "bearer refreshed (rotated or adopted a concurrent OAuth credential)",
       );
+      return token;
+    } catch {
+      // Never print endpoint/fetch diagnostics: they can echo token bytes.
+      log("bearer refresh failed — no usable concurrent credential");
       return null;
     }
   };
@@ -226,18 +123,4 @@ export function createConfigBearerSource(opts: {
       return pending;
     },
   };
-}
-
-/**
- * Matches the transport/tool errors an expired or revoked bearer produces:
- * the SDK's StreamableHTTPError (code 401), "Unauthorized", and the server's
- * withMcpAuth JSON (`invalid_token` / "No authorization provided").
- */
-export function isUnauthorizedishError(e: unknown): boolean {
-  if (typeof e === "object" && e !== null) {
-    const rec = e as { code?: unknown; status?: unknown };
-    if (rec.code === 401 || rec.status === 401) return true;
-  }
-  const message = e instanceof Error ? e.message : String(e);
-  return /\b401\b|unauthorized|invalid_token|no authorization/i.test(message);
 }

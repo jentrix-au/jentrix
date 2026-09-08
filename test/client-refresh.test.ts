@@ -1,13 +1,15 @@
+import {
+  RefreshFailedError,
+  maybeRefreshOAuthToken,
+  REFRESH_SKEW_MS,
+} from "../src/oauth-session";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
   connectJentrixClientWithRefresh,
   DEAD_TOKEN_MESSAGE,
-  maybeRefreshOAuthToken,
   unauthorizedMessage,
-  REFRESH_SKEW_MS,
-  RefreshFailedError,
   type JentrixClientHandle,
 } from "../src/client";
 import {
@@ -254,7 +256,6 @@ describe("maybeRefreshOAuthToken — failure → relogin (exit 7 upstream)", () 
         fetchImpl,
         io: { reader: fs.reader, writer: fs.writer },
       }),
-      RefreshFailedError,
     );
   });
 
@@ -573,5 +574,181 @@ describe("unauthorizedMessage (AGE-978)", () => {
       unauthorizedMessage({ url: "not a url", oauth }, "not a url"),
       DEAD_TOKEN_MESSAGE,
     );
+  });
+});
+
+describe("shared credential adoption — deterministic concurrent writers", () => {
+  const oauth = baseOAuth("2020-01-01T00:00:00.000Z");
+  for (const status of [200, 400]) {
+    it(`adopts a persisted winner during an HTTP ${status} exchange, preserving its state`, async () => {
+      const fs = memFs({ [PATH]: JSON.stringify({ token: "tmo_old", oauth }) });
+      const winner = {
+        token: "tmo_winner",
+        oauth: { ...oauth, refreshToken: "tmr_winner" },
+        url: "https://selected.example/api/mcp",
+        capture: { trace: false },
+        installationId: "kept",
+      };
+      const result = await maybeRefreshOAuthToken({
+        configPath: PATH,
+        accessToken: "tmo_old",
+        oauth,
+        now: () => NOW,
+        io: fs,
+        fetchImpl: (async () => {
+          fs.files.set(PATH, JSON.stringify(winner));
+          return new Response(
+            JSON.stringify(
+              status === 200
+                ? {
+                    access_token: "tmo_obsolete",
+                    refresh_token: "tmr_obsolete",
+                    expires_in: 3600,
+                  }
+                : { error: "invalid_grant" },
+            ),
+            { status },
+          );
+        }) as typeof fetch,
+      });
+      assert.equal(result, "tmo_winner");
+      assert.deepEqual(JSON.parse(fs.files.get(PATH)!), winner);
+    });
+  }
+  for (const change of ["endpoint", "client", "logout", "malformed"] as const) {
+    it(`refuses a concurrent ${change} change without overwriting it`, async () => {
+      const original = { token: "tmo_old", oauth };
+      const fs = memFs({ [PATH]: JSON.stringify(original) });
+      const changed =
+        change === "malformed"
+          ? '{"token":"tmo_private"'
+          : JSON.stringify(
+              change === "logout"
+                ? { defaults: { kept: true } }
+                : {
+                    token: "tmo_foreign",
+                    oauth: {
+                      ...oauth,
+                      ...(change === "endpoint"
+                        ? { tokenEndpoint: "https://foreign.example/token" }
+                        : { clientId: "other-client" }),
+                    },
+                  },
+            );
+      await assert.rejects(
+        maybeRefreshOAuthToken({
+          configPath: PATH,
+          accessToken: "tmo_old",
+          oauth,
+          now: () => NOW,
+          io: fs,
+          fetchImpl: (async () => {
+            fs.files.set(PATH, changed);
+            return new Response(
+              JSON.stringify({
+                access_token: "tmo_new",
+                refresh_token: "tmr_new",
+                expires_in: 3600,
+              }),
+            );
+          }) as typeof fetch,
+        }),
+        RefreshFailedError,
+      );
+      assert.equal(fs.files.get(PATH), changed);
+    });
+  }
+  it("malformed config fails before exchange and never quotes credential bytes", async () => {
+    const raw = '{"token":"tmo_private_secret", not JSON';
+    const fs = memFs({ [PATH]: raw });
+    await assert.rejects(
+      maybeRefreshOAuthToken({
+        configPath: PATH,
+        accessToken: "tmo_private_secret",
+        oauth,
+        now: () => NOW,
+        io: fs,
+        fetchImpl: (async () => {
+          assert.fail("must not refresh");
+        }) as typeof fetch,
+      }),
+      (error: unknown) =>
+        error instanceof RefreshFailedError &&
+        !error.message.includes("private_secret"),
+    );
+    assert.equal(fs.files.get(PATH), raw);
+    assert.throws(
+      () => readConfigFile(PATH, fs.reader),
+      (error: unknown) =>
+        error instanceof Error && !error.message.includes("private_secret"),
+    );
+  });
+  it("unknown endpoint errors and network exceptions cannot leak tokens", async () => {
+    for (const mode of ["response", "throw"]) {
+      const fs = memFs({ [PATH]: JSON.stringify({ token: "tmo_old", oauth }) });
+      await assert.rejects(
+        maybeRefreshOAuthToken({
+          configPath: PATH,
+          accessToken: "tmo_old",
+          oauth,
+          now: () => NOW,
+          io: fs,
+          fetchImpl: (async () => {
+            if (mode === "throw")
+              throw new Error("request refresh_token=tmr_private_secret");
+            return new Response(
+              JSON.stringify({
+                error: "tmr_private_secret",
+                error_description: "tmo_private_secret",
+              }),
+              { status: 400 },
+            );
+          }) as typeof fetch,
+        }),
+        (error: unknown) =>
+          error instanceof RefreshFailedError &&
+          !error.message.includes("private_secret"),
+      );
+      assert.equal(JSON.parse(fs.files.get(PATH)!).token, "tmo_old");
+    }
+  });
+  it("refresh preserves unknown top-level state and never accepts a token pair on a failed HTTP response", async () => {
+    const initial = {
+      token: "tmo_old",
+      oauth,
+      preferences: { trace: false, skeleton: true },
+      installationId: "stable",
+    };
+    const fs = memFs({ [PATH]: JSON.stringify(initial) });
+    const input = {
+      configPath: PATH,
+      accessToken: "tmo_old",
+      oauth,
+      now: () => NOW,
+      io: fs,
+    };
+    await assert.rejects(
+      maybeRefreshOAuthToken({
+        ...input,
+        fetchImpl: stubFetch(
+          { access_token: "tmo_bad", refresh_token: "tmr_bad" },
+          500,
+        ).fetchImpl,
+      }),
+      RefreshFailedError,
+    );
+    assert.deepEqual(JSON.parse(fs.files.get(PATH)!), initial);
+    await maybeRefreshOAuthToken({
+      ...input,
+      fetchImpl: stubFetch({
+        access_token: "tmo_new",
+        refresh_token: "tmr_new",
+      }).fetchImpl,
+    });
+    assert.deepEqual(
+      JSON.parse(fs.files.get(PATH)!).preferences,
+      initial.preferences,
+    );
+    assert.equal(JSON.parse(fs.files.get(PATH)!).installationId, "stable");
   });
 });

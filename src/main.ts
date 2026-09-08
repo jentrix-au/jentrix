@@ -1,3 +1,4 @@
+import { RefreshFailedError } from "./oauth-session";
 /**
  * `jentrix` — process edge. As thin as possible (design.md §2): build the
  * real dependencies (fs, stdin, HTTP client, clock), mount the commands,
@@ -26,11 +27,7 @@ import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError } from "commander";
 
-import {
-  CLI_VERSION,
-  connectJentrixClientWithRefresh,
-  RefreshFailedError,
-} from "./client";
+import { CLI_VERSION, connectJentrixClientWithRefresh } from "./client";
 import {
   ConfigError,
   configPathFor,
@@ -63,20 +60,17 @@ import {
   type PluginCommandDeps,
 } from "./commands/plugin";
 import {
-  invokeRunnerProcess,
+  invokeProcess,
   platformExecutableNames,
-  registerRunnerCommand,
   resolveClaudeExecutable,
   resolveExecutableOnPath,
-  resolveRunnerExecutable,
-  runRunnerForeground,
-} from "./commands/runner";
-import {
-  readAlignmentMarker,
-  readCurrentProviderHookContext,
-  registerSessionCommand,
-  type SessionCommandDeps,
-} from "./commands/session";
+  runForeground,
+} from "./process";
+import { registerRunnerCommand } from "./commands/runner";
+import { readAlignmentMarker } from "./session/state";
+import { readCurrentProviderHookContext } from "./session/provider-context";
+import { registerSessionCommand } from "./commands/session";
+import { type SessionCommandDeps } from "./session/deps";
 import { defaultGitRunner, inspectRepository } from "./repo";
 import { registerAlignCommand } from "./commands/align";
 import { registerFolderCommand, runFolderAlign } from "./commands/folder";
@@ -97,9 +91,8 @@ const SURFACE_URL = new URL("../surface.json", import.meta.url);
 
 /**
  * The bundled manifest (sits next to dist/ and src/ alike). It powers the
- * generated command tree and the unknown-name notice; an unreadable manifest
- * degrades to "no generated commands, no notice" — `jentrix tool` always
- * works, so a broken install still has the full escape hatch.
+ * generated command tree and local product-name validation. An unreadable
+ * manifest leaves local help/diagnostics available but refuses raw tool calls.
  */
 function loadManifest(): SurfaceManifest | null {
   try {
@@ -375,14 +368,12 @@ registerToolCommand(program, deps, onExit);
 registerWhoamiCommand(program, deps, onExit);
 registerLoginCommand(program, loginDeps, onExit);
 registerLogoutCommand(program, logoutDeps, onExit);
-// Client-runtime v2 Phase D: `jentrix runner` is a hidden one-window
-// delegate to the `jentrix-runner` bin — doctor/setup/up orchestration lives
-// in the runner package now (§15.7).
+// `jentrix runner` survives only as a hidden migration refusal: Ops runner
+// operations are not part of the MVP CLI, and the command exists so an old
+// invocation gets a named error instead of "unknown command".
 registerRunnerCommand(
   program,
   {
-    resolveRunner: () => resolveRunnerExecutable(process.env),
-    runRunner: (file, args) => runRunnerForeground(file, args),
     writeErr: (text) => process.stderr.write(`${text}\n`),
   },
   onExit,
@@ -423,7 +414,7 @@ const sessionDeps: SessionCommandDeps = {
     return existsSync(hostPath) ? hostPath : null;
   },
   runSessionHost: (hostPath, planPath, env) =>
-    runRunnerForeground(
+    runForeground(
       process.execPath,
       [hostPath, "run", "--plan-file", planPath],
       env,
@@ -529,7 +520,7 @@ const pluginDeps: PluginCommandDeps = {
     }
   },
   writeTextFile: (path, text) => writeFileSync(path, text, "utf8"),
-  invoke: invokeRunnerProcess,
+  invoke: invokeProcess,
   writeOut: (text) => process.stdout.write(`${text}\n`),
   writeErr: (text) => process.stderr.write(`${text}\n`),
   // AGE-952: the one-liner install ends connected — same in-process login
@@ -556,7 +547,7 @@ sessionDeps.client = {
   resolveCodexPluginDir: pluginDeps.resolveCodexPluginDir,
   resolveClaude: pluginDeps.resolveClaude,
   resolveCodex: pluginDeps.resolveCodex,
-  invoke: (file, args) => invokeRunnerProcess(file, args),
+  invoke: (file, args) => invokeProcess(file, args),
   fileExists: pluginDeps.fileExists,
   readTextFile: pluginDeps.readTextFile,
   homeDir: () => homedir(),
@@ -583,7 +574,7 @@ registerSetupCommand(
       );
       const ask = async (args: string[]) => {
         if (!npm) return null;
-        const out = (await invokeRunnerProcess(npm, args)).stdout.trim();
+        const out = (await invokeProcess(npm, args)).stdout.trim();
         return out || null;
       };
       const root = await ask(["root", "-g"]);
@@ -644,7 +635,7 @@ registerSetupCommand(
         process.env,
       );
       const root = npm
-        ? (await invokeRunnerProcess(npm, ["root", "-g"])).stdout.trim() || null
+        ? (await invokeProcess(npm, ["root", "-g"])).stdout.trim() || null
         : null;
       // The persistent copy qualifies only when ITS dependency tree resolves
       // the plugin packages (a pre-S3 global install carries none — then the

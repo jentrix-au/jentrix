@@ -10,7 +10,7 @@ import { test } from "node:test";
 import {
   buildAttestedDiffBody,
   MAX_ATTESTED_DIFF_BYTES,
-} from "../src/commands/session";
+} from "../src/session/end";
 import {
   fromCmdLogBody,
   MAX_FROM_CMD_OUTPUT_BYTES,

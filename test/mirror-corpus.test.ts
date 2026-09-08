@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { localConnectionKey } from "../src/commands/session";
+import { localConnectionKey } from "../src/session/state";
 import { createSessionRedactor } from "../src/session-host/session-redact";
 
 // ---------------------------------------------------------------------------

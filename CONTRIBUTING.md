@@ -36,6 +36,7 @@ pnpm typecheck
 pnpm test                      # unit tests (node:test)
 CLI_PACK_SMOKE=1 pnpm test     # plus the cold install of the packed tarballs
 pnpm validate:examples         # the reference extensions under examples/
+pnpm gen:workflows             # after editing shared workflow sources
 pnpm build                     # dist/ — the bins and the @jentrix/cli/core entry
 ```
 
@@ -43,6 +44,20 @@ pnpm build                     # dist/ — the bins and the @jentrix/cli/core en
 installs the exact tarballs together into an empty project and runs the
 installed `jentrix`. Run it before opening a pull request that touches
 packaging, `scripts/`, or anything under `plugins/`.
+
+The seven official workflows have one provider-neutral source under
+`plugins/workflows/`, plus short Claude/Codex entries and frontmatter. Generate
+with `pnpm gen:workflows`; include both sources and generated files in the
+review. Build/prepack reject stale files, and tests prove deterministic
+regeneration and complete workflow availability in each packed plugin.
+
+Session command registration lives in `src/commands/session.ts`; state,
+provider context, host control, connect, alignment, status, close, and doctor
+logic live under `src/session/`. Shared MCP parsing/task lookup are in
+`src/tool-client.ts` and `src/task-resolution.ts`. OAuth rotation is maintained
+in `src/oauth-session.ts` over `src/config.ts` and `src/oauth.ts`; the host
+keeps only its long-lived coordination policy. Core's dependency firewall
+remains separate.
 
 To try a change to a plugin in your own Claude Code or Codex: register the
 checkout's plugin directory as a SECOND marketplace under a name of your own

@@ -18,7 +18,9 @@ import { Command } from "commander";
 
 import { EXIT_CODES } from "../errors";
 import { planMcpServerEntry, renderMcpConfig } from "../mcp-config";
-import { reportError, UsageError, type SessionCommandDeps } from "./session";
+import { reportError } from "../session/runtime";
+import { UsageError } from "../tool-client";
+import { type SessionCommandDeps } from "../session/deps";
 
 type McpProvider = "claude" | "codex";
 
@@ -67,7 +69,9 @@ export async function runMcpStatus(
       }
     }
     if (flags.json) {
-      deps.writeOut(JSON.stringify({ provider, registered: url !== null, url }));
+      deps.writeOut(
+        JSON.stringify({ provider, registered: url !== null, url }),
+      );
     } else {
       deps.writeOut(
         url

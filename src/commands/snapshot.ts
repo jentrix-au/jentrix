@@ -35,9 +35,12 @@ import { join } from "node:path";
 import { Command } from "commander";
 
 import { inspectRepository } from "../repo";
-import { readAlignmentMarker } from "./session";
+import { readAlignmentMarker } from "../session/state";
 import { runPush, type PushDeps } from "./push";
-import { readLiveHostMarker, type LocalHostMarker } from "./session";
+import {
+  readLiveHostMarker,
+  type LocalHostMarker,
+} from "../session/host-control";
 
 /** Most a single snapshot uploads; the rest waits for the next boundary. */
 const MAX_SLICE_BYTES = 1_000_000;

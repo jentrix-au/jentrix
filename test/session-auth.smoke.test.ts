@@ -1,3 +1,4 @@
+import { isUnauthorizedError } from "../src/errors";
 /**
  * Capture-off telemetry finding (2026-08-08, session cmsk80my000ib04jvsrvlzf9q):
  * the host's static bearer was revoked by a concurrent CLI rotation and the
@@ -7,14 +8,13 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
   createConfigBearerSource,
-  isUnauthorizedishError,
   staticBearerSource,
 } from "../src/session-host/session-auth.js";
 
@@ -89,6 +89,7 @@ test("refresh() rotates via the token endpoint and persists the CLI-shaped recor
   // Unrelated fields survive the read-merge-write.
   assert.equal(persisted.url, "https://stacks.example/api/mcp");
   assert.equal(persisted.installationId, "install-1");
+  assert.equal(statSync(path).mode & 0o777, 0o600);
   // …and the follow-up get() serves the rotated token.
   assert.equal(source.get(), "tmo_new");
 });
@@ -209,16 +210,86 @@ test("F3 guard: a produced bearer expiring much later refreshes normally", async
   assert.equal(minted, 2);
 });
 
-test("isUnauthorizedishError matches the live failure shapes", () => {
+test("isUnauthorizedError matches the live failure shapes", () => {
   // The exact host.log line from the incident:
   assert.ok(
-    isUnauthorizedishError(
+    isUnauthorizedError(
       new Error(
         'Streamable HTTP error: Error POSTing to endpoint: {"error":"invalid_token","error_description":"No authorization provided"}',
       ),
     ),
   );
-  assert.ok(isUnauthorizedishError({ code: 401 }));
-  assert.ok(isUnauthorizedishError(new Error("Unauthorized")));
-  assert.ok(!isUnauthorizedishError(new Error("CONFLICT: stale write")));
+  assert.ok(isUnauthorizedError({ code: 401 }));
+  assert.ok(isUnauthorizedError(new Error("Unauthorized")));
+  assert.ok(!isUnauthorizedError(new Error("CONFLICT: stale write")));
+});
+
+test("host refuses a new endpoint's credentials and never rotates that chain", async () => {
+  const path = configFile({ token: "tmo_old", oauth: OAUTH });
+  let calls = 0;
+  const source = createConfigBearerSource({
+    configPath: path,
+    fallback: "tmo_old",
+    fetchImpl: (async () => {
+      calls++;
+      throw new Error("must not fetch");
+    }) as typeof fetch,
+  });
+  const foreign = JSON.stringify({
+    token: "tmo_foreign",
+    oauth: { ...OAUTH, tokenEndpoint: "https://foreign.example/token" },
+  });
+  writeFileSync(path, foreign);
+  assert.equal(source.get(), "tmo_old");
+  assert.equal(await source.refresh("tmo_old"), null);
+  assert.equal(calls, 0);
+  assert.equal(readFileSync(path, "utf8"), foreign);
+});
+
+test("host shares pending refreshes, uses its injected clock, and hides failed endpoint details", async () => {
+  const path = configFile({ token: "tmo_old", oauth: OAUTH });
+  let release!: (r: Response) => void;
+  let calls = 0;
+  const lines: string[] = [];
+  const source = createConfigBearerSource({
+    configPath: path,
+    fallback: "tmo_old",
+    now: () => 100000,
+    log: (line) => lines.push(line),
+    fetchImpl: (async () => {
+      calls++;
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    }) as typeof fetch,
+  });
+  const a = source.refresh("tmo_old");
+  const b = source.refresh("tmo_old");
+  release(
+    new Response(
+      JSON.stringify({
+        access_token: "tmo_new",
+        refresh_token: "tmr_new",
+        expires_in: 3600,
+      }),
+    ),
+  );
+  assert.deepEqual(await Promise.all([a, b]), ["tmo_new", "tmo_new"]);
+  assert.equal(calls, 1);
+  assert.equal(
+    JSON.parse(readFileSync(path, "utf8")).oauth.expiresAt,
+    new Date(3700000).toISOString(),
+  );
+  const failed = createConfigBearerSource({
+    configPath: path,
+    fallback: "tmo_new",
+    log: (line) => lines.push(line),
+    fetchImpl: (async () => {
+      throw new Error("tmr_private_secret");
+    }) as typeof fetch,
+  });
+  assert.equal(await failed.refresh("tmo_new"), null);
+  assert.doesNotMatch(lines.join("\n"), /private_secret|tmo_new|tmr_new/);
+  writeFileSync(path, '{"token":"tmo_private_secret"');
+  assert.equal(await failed.refresh("tmo_new"), null);
 });

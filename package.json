@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/cli",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "Command-line client for the Jentrix MCP surface (jentrix tool <name>, generated noun-verb commands).",
   "keywords": [
     "jentrix",
@@ -61,7 +61,8 @@
     "gen:help-goldens": "node --import tsx scripts/gen-help-goldens.ts",
     "build": "node scripts/build.mjs",
     "prepack": "node scripts/build.mjs",
-    "validate:examples": "node scripts/validate-examples.mjs"
+    "validate:examples": "node scripts/validate-examples.mjs",
+    "gen:workflows": "node scripts/generate-workflows.mjs"
   },
   "dependencies": {
     "@jentrix/plugin-claude": "workspace:*",

@@ -18,7 +18,6 @@ import {
   withHostRateLimitRetry,
 } from "../src/session-host/session-bridge.js";
 import { mapClaudeTranscriptLine } from "../src/session-host/session-claude-transcript.js";
-import { mapCodexThreadEvent } from "../src/session-host/session-codex-events.js";
 import { createSessionRedactor } from "../src/session-host/session-redact.js";
 import { SessionSpool } from "../src/session-host/session-spool.js";
 
@@ -146,57 +145,6 @@ test("claude transcript mapper: inputTokens includes cache read + creation (AGE-
     inputTokens: 7,
     outputTokens: 2,
   });
-});
-
-test("codex event mapper: thread id, items, usage receipts, hidden reasoning dropped", () => {
-  const started = mapCodexThreadEvent({
-    type: "thread.started",
-    thread_id: "th_1",
-  });
-  assert.equal(started.threadId, "th_1");
-  assert.equal(started.event?.kind, "session");
-
-  const message = mapCodexThreadEvent({
-    type: "item.completed",
-    item: { id: "i1", type: "agent_message", text: "done" },
-  });
-  assert.equal(message.event?.kind, "assistant_message");
-  assert.equal(message.event?.providerEventId, "i1");
-
-  const command = mapCodexThreadEvent({
-    type: "item.completed",
-    item: {
-      id: "i2",
-      type: "command_execution",
-      command: "pnpm test",
-      exit_code: 0,
-    },
-  });
-  assert.equal(command.event?.kind, "command");
-
-  const usage = mapCodexThreadEvent({
-    type: "turn.completed",
-    usage: { input_tokens: 900, cached_input_tokens: 350, output_tokens: 80 },
-  });
-  assert.equal(usage.event?.kind, "usage");
-  // AGE-938: cached_input_tokens (a SUBSET of input_tokens) → cacheReadTokens;
-  // cacheCreationTokens is never emitted (no such Codex concept — unreported).
-  assert.deepEqual(usage.event?.payload, {
-    kind: "delta",
-    inputTokens: 900,
-    outputTokens: 80,
-    cacheReadTokens: 350,
-  });
-
-  const reasoning = mapCodexThreadEvent({
-    type: "item.completed",
-    item: { id: "i3", type: "reasoning", text: "hidden" },
-  });
-  assert.equal(reasoning.event, null);
-  assert.equal(reasoning.unrecognized, false);
-
-  const alien = mapCodexThreadEvent({ type: "something.else" });
-  assert.equal(alien.unrecognized, true);
 });
 
 interface FakeCall {
@@ -744,43 +692,6 @@ test("claude mapper: the usage receipt carries the entry's own model (AC2.4)", (
   );
   // The line-level report is unchanged — the bridge still tracks "last model".
   assert.equal(mapped.modelId, "claude-opus-5");
-});
-
-test("codex mapper: turn_context names the model; reasoning tokens map when present (AC2.4/AC2.7)", () => {
-  const context = mapCodexThreadEvent({
-    type: "turn_context",
-    turn_context: { model: "gpt-5.5-codex" },
-  });
-  assert.equal(context.unrecognized, false);
-  assert.equal(context.modelId, "gpt-5.5-codex");
-  assert.equal(context.event, null);
-
-  const usage = mapCodexThreadEvent({
-    type: "turn.completed",
-    usage: {
-      input_tokens: 100,
-      cached_input_tokens: 40,
-      output_tokens: 20,
-      reasoning_output_tokens: 8,
-    },
-  });
-  assert.deepEqual(usage.event?.payload, {
-    kind: "delta",
-    inputTokens: 100,
-    outputTokens: 20,
-    cacheReadTokens: 40,
-    reasoningOutputTokens: 8,
-  });
-
-  // Absent stays absent — an old runtime without the field reports nothing.
-  const bare = mapCodexThreadEvent({
-    type: "turn.completed",
-    usage: { input_tokens: 10, output_tokens: 1 },
-  });
-  assert.equal(
-    "reasoningOutputTokens" in (bare.event?.payload as object),
-    false,
-  );
 });
 
 test("bridge: flushUsageNow bypasses the 30 s window and reports the server's ack honestly (AC2.5)", async () => {

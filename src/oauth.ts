@@ -328,7 +328,14 @@ async function postToken(
     );
   }
   // parseTokenResponse surfaces an embedded {error} regardless of HTTP status.
-  return parseTokenResponse(json);
+  const pair = parseTokenResponse(json);
+  if (!res.ok) {
+    throw new OAuthTokenError(
+      "invalid_response",
+      `token endpoint rejected the exchange (HTTP ${res.status})`,
+    );
+  }
+  return pair;
 }
 
 /** Exchange an authorization code for a token pair (authorization_code grant). */
