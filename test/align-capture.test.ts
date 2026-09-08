@@ -10,7 +10,11 @@ import {
 import {
   isHostCapturing,
   type LocalHostMarker,
+  readLiveHostMarker,
 } from "../src/session/host-control";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * AGE-956 — the capture consent contract: a re-align with no flag NEVER flips
@@ -200,5 +204,45 @@ describe("captureSourceLabel — host provenance (JEN-457)", () => {
       captureSourceLabel(undefined, false, "(your default)"),
       "(your default)",
     );
+  });
+});
+
+/**
+ * JEN-474 — the default pid probe under a process sandbox. `kill(pid, 0)` on
+ * a live host started from another sandbox instance throws EPERM (the process
+ * exists; this caller may not signal it). Reading that as "dead" made align
+ * launch a second host and skip its flush, and made end complete server-side
+ * without ever asking the live host for its manifest.
+ */
+describe("readLiveHostMarker default probe (JEN-474)", () => {
+  const spoolRoot = mkdtempSync(join(tmpdir(), "jentrix-liveness-"));
+  mkdirSync(join(spoolRoot, "s1"));
+  writeFileSync(
+    join(spoolRoot, "s1", "host.json"),
+    JSON.stringify({ pid: 4242, mode: "watch", provider: "codex" }),
+  );
+  const withKill = (code: string, fn: () => void) => {
+    const real = process.kill;
+    process.kill = ((pid: number) => {
+      assert.equal(pid, 4242);
+      throw Object.assign(new Error(code), { code });
+    }) as typeof process.kill;
+    try {
+      fn();
+    } finally {
+      process.kill = real;
+    }
+  };
+
+  it("EPERM means the host EXISTS — the marker is live", () => {
+    withKill("EPERM", () => {
+      assert.equal(readLiveHostMarker({ spoolRoot }, "s1")?.pid, 4242);
+    });
+  });
+
+  it("ESRCH means no such process — the marker is stale", () => {
+    withKill("ESRCH", () => {
+      assert.equal(readLiveHostMarker({ spoolRoot }, "s1"), null);
+    });
   });
 });

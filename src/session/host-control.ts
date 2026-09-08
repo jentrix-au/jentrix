@@ -238,12 +238,20 @@ export function isHostCapturing(
   }
 }
 
+/**
+ * Signal 0 probes existence. ESRCH means no such process; EPERM means the
+ * process EXISTS but this caller may not signal it — which is exactly what a
+ * process sandbox (the macOS Codex seatbelt) answers for a live host started
+ * from another sandbox instance. Reading EPERM as dead is JEN-474: align then
+ * launched a second host and skipped its flush, and end never asked the live
+ * host for its manifest, sealing the session with capture ERROR.
+ */
 function defaultIsPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return (e as { code?: unknown }).code === "EPERM";
   }
 }
 
