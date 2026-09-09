@@ -1,6 +1,6 @@
 {
   "name": "jentrix",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Connect Codex tasks to Jentrix with trusted lifecycle hooks, exact-rollout telemetry recovery, typed artifacts, and operator-confirmed alignment.",
   "author": {
     "name": "Jentrix",

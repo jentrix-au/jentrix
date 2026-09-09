@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/plugin-codex",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "The official Jentrix plugin for Codex: connected-session skills and trusted lifecycle hooks, materialized by the Jentrix CLI (jentrix plugin install codex).",
   "keywords": [
     "jentrix",
