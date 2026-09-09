@@ -13,6 +13,7 @@ import {
   type AliasConfig,
   type TreeRuntime,
 } from "../src/commands/build";
+import { registerTaskContextCommands } from "../src/commands/task-context";
 import type { ToolCommandDeps } from "../src/commands/tool";
 import {
   loadSurface,
@@ -112,8 +113,7 @@ describe("planCommandTree — real surface + real aliases", () => {
     it("--idempotency-key appears exactly on tools whose schema has idempotencyKey", () => {
       for (const mount of plan.mounts) {
         const properties = mount.tool.inputSchema.properties as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         const wants =
           properties !== undefined && "idempotencyKey" in properties;
         const has = mount.descriptors.some(
@@ -131,8 +131,7 @@ describe("planCommandTree — real surface + real aliases", () => {
     it("--if-unmodified-since appears exactly on tools whose schema has expectedUpdatedAt", () => {
       for (const mount of plan.mounts) {
         const properties = mount.tool.inputSchema.properties as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         const wants =
           properties !== undefined && "expectedUpdatedAt" in properties;
         const has = mount.descriptors.some(
@@ -620,6 +619,34 @@ describe("help output — frozen snapshots (stage C2.2 test 2)", () => {
       );
     });
   }
+
+  // JEN-495 (D3/D4) — the hand-written compositions ride the SESSION program,
+  // not the generated tree, so they get their own frozen help beside it.
+  it("matches goldens for the hand-written task commands", () => {
+    const handWritten = new Command().name("jentrix");
+    registerTaskContextCommands(handWritten, {} as never, inertRuntime.onExit);
+    for (const [file, path] of [
+      ["help-task-context.txt", ["task", "context"]],
+      ["help-subtask-list.txt", ["subtask", "list"]],
+    ] as const) {
+      let command: Command = handWritten;
+      for (const segment of path) {
+        const next = command.commands.find((c) => c.name() === segment);
+        assert.ok(next, `command "${path.join(" ")}" not found`);
+        command = next;
+      }
+      const goldenUrl = new URL(`./golden/${file}`, import.meta.url);
+      if (update) {
+        writeFileSync(goldenUrl, command.helpInformation());
+        continue;
+      }
+      assert.equal(
+        command.helpInformation(),
+        readFileSync(goldenUrl, "utf8"),
+        `help drifted from test/golden/${file} — regenerate with pnpm gen:help-goldens`,
+      );
+    }
+  });
 
   it("every manifest tool appears exactly once in the mounted tree", () => {
     // Walk the commander tree: leaves are commands with an action handler;

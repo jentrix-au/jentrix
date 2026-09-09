@@ -1,0 +1,8 @@
+Usage: jentrix subtask list [options]
+
+List a task's subtasks with ids and completion (one get_task call).
+
+Options:
+  --task <id-or-key>  the task (id or key like JEN-42)
+  --json              print the subtasks as JSON
+  -h, --help          display help for command

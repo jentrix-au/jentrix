@@ -22,7 +22,7 @@ import { hasLocalCaptureFootprint, localCaptureLines } from "./host-control";
  * marker), so a bare `status` answers the question the plugin commands ask.
  * Null when unknown; an ambiguous provider context is not a status failure.
  */
-async function ownAlignedSessionId(
+export async function ownAlignedSessionId(
   deps: SessionCommandDeps,
 ): Promise<string | null> {
   try {
@@ -316,6 +316,14 @@ export async function activeSessionsBoundHere(
   return found;
 }
 
+/**
+ * JEN-494 AC1.7 — the aggregation rule, named ONCE on the line that reports
+ * the figures it produced. Before this, a reader had no way to tell a total
+ * that counts every transcript record (§4 G1: 1.4–4.4× too high) from one
+ * that counts API messages, because both printed the same sentence.
+ */
+const RECEIPT_RULE = " · receipts: one per API message (last record wins)";
+
 export interface TelemetryVerdict {
   state: "recorded" | "unavailable" | "unattributed" | "no-host";
   /** What WAS recorded, one line — never estimated (F4: the closing fact). */
@@ -368,7 +376,7 @@ export function telemetryVerdict(
   if (Object.values(tokens).some((value) => value !== null)) {
     return {
       state: "recorded",
-      line: `Telemetry: in ${tokens.in} · out ${tokens.out} · cacheRead ${tokens.cacheRead} · cacheWrite ${tokens.cacheWrite}${ttlPart}${wallPart}${coveragePart}`,
+      line: `Telemetry: in ${tokens.in} · out ${tokens.out} · cacheRead ${tokens.cacheRead} · cacheWrite ${tokens.cacheWrite}${ttlPart}${wallPart}${coveragePart}${RECEIPT_RULE}`,
       warning: null,
     };
   }

@@ -498,6 +498,55 @@ test("bridge: traceCapture=false spools nothing, uploads nothing, still submits 
   assert.equal(existsSync(join(spool.directory, "usage.json")), false);
 });
 
+test("bridge: the final response JOINS the blocks of the last streamed message (JEN-494 AC1.5)", async () => {
+  const { bridge, calls } = fakeBridge({});
+  bridge.startObserving();
+  // An earlier message, then one streamed as three entries sharing an id —
+  // exactly what Claude Code writes. Before D12 the artifact held "Third."
+  // alone: "final response captured as a mid-turn fragment" (§4 G4).
+  bridge.record({
+    kind: "assistant_message",
+    payload: { text: "earlier turn", messageId: "msg_old" },
+  });
+  bridge.record({
+    kind: "assistant_message",
+    payload: { text: "First.", messageId: "msg_last" },
+  });
+  bridge.record({
+    kind: "assistant_message",
+    payload: { text: "Second.", messageId: "msg_last" },
+  });
+  bridge.record({
+    kind: "assistant_message",
+    payload: { text: "Third.", messageId: "msg_last" },
+  });
+  await bridge.complete({
+    outcome: "COMPLETED",
+    end: { branch: "main", head: "abc", dirty: false },
+  });
+  const body = String(
+    calls.find((c) => c.url.includes("/artifacts"))!.body.body,
+  );
+  assert.match(body, /First\.\nSecond\.\nThird\./);
+  assert.doesNotMatch(body, /earlier turn/);
+});
+
+test("bridge: without a messageId the newest block still wins (Codex, old transcripts)", async () => {
+  const { bridge, calls } = fakeBridge({});
+  bridge.startObserving();
+  bridge.record({ kind: "assistant_message", payload: { text: "one" } });
+  bridge.record({ kind: "assistant_message", payload: { text: "two" } });
+  await bridge.complete({
+    outcome: "COMPLETED",
+    end: { branch: "main", head: "abc", dirty: false },
+  });
+  const body = String(
+    calls.find((c) => c.url.includes("/artifacts"))!.body.body,
+  );
+  assert.match(body, /two/);
+  assert.doesNotMatch(body, /one/);
+});
+
 test("bridge: a 401 heartbeat asks the bearer source to recover (rotation mid-session)", async () => {
   const failed: string[] = [];
   const { bridge, calls } = fakeBridge({

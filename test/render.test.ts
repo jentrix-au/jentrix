@@ -167,3 +167,71 @@ describe("renderResult human mode — JSON fallback for unknown shapes", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// JEN-495 (D4/AC2.2) — search_tasks renders ONE LINE PER HIT.
+//
+// The generic table gives search_tasks thirteen columns and ~200 characters a
+// row, so every hit wrapped across several terminal lines; an agent cut the
+// page with `head -30` and never reached the card that held its prior context
+// (§4 G5). The server's ORDER is kept exactly — a client that re-sorts a page
+// disagrees with the query that produced it.
+// ---------------------------------------------------------------------------
+
+describe("renderResult — search_tasks (JEN-495 D4)", () => {
+  it("search_tasks: one line per hit, total, and the continuation cursor", () => {
+    const out = renderResult(
+      {
+        results: [
+          {
+            id: "t1",
+            key: "JEN-257",
+            title: "Export/import v1",
+            boardName: "Client runtime",
+            columnName: "Done",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+          {
+            id: "t2",
+            key: "JEN-9",
+            title: "Second",
+            boardName: "B",
+            columnName: "C",
+            updatedAt: "2026-02-01T00:00:00.000Z",
+          },
+        ],
+        totalCount: 35,
+        nextCursor: "cur_abc",
+        notice: "Showing 2 of 35 matches",
+      },
+      { json: false, tool: "search_tasks" },
+    );
+    assert.deepEqual(out.split("\n"), [
+      "JEN-257  Export/import v1  · Client runtime · Done · 2026-03-01T00:00:00.000Z",
+      "JEN-9    Second  · B · C · 2026-02-01T00:00:00.000Z",
+      "total: 35",
+      "next: --cursor cur_abc",
+      "Showing 2 of 35 matches",
+    ]);
+  });
+
+  it("search_tasks: an empty page says so; no cursor line without one", () => {
+    const out = renderResult(
+      { results: [], totalCount: 0, nextCursor: null },
+      { json: false, tool: "search_tasks" },
+    );
+    assert.deepEqual(out.split("\n"), ["no matching tasks", "total: 0"]);
+  });
+
+  it("search_tasks: --json is untouched, and another tool keeps the table", () => {
+    const payload = { results: [{ id: "t1", key: "K-1" }], totalCount: 1 };
+    assert.equal(
+      renderResult(payload, { json: true, tool: "search_tasks" }),
+      stableStringify(payload),
+    );
+    assert.match(
+      renderResult(payload, { json: false, tool: "list_tasks" }),
+      /^id\s+key/,
+    );
+  });
+});

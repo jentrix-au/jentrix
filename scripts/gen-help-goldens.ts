@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
 import { registerSessionCommand } from "../src/commands/session";
+import { registerTaskContextCommands } from "../src/commands/task-context";
 import type { SessionCommandDeps } from "../src/session/deps";
 
 import { ALIASES, FLAG_RENAMES } from "../src/commands/aliases";
@@ -20,6 +21,12 @@ const GOLDENS = [
   { file: "help-task.txt", command: ["task"] },
   { file: "help-agent.txt", command: ["agent"] },
   { file: "help-task-update.txt", command: ["task", "update"] },
+  // JEN-495 (D3/D4): the hand-written compositions, pinned like every other
+  // command. They are registered on the SESSION program below, because they
+  // need session deps (folder binding, caller) that the generated tree has no
+  // place for.
+  { file: "help-task-context.txt", command: ["task", "context"] },
+  { file: "help-subtask-list.txt", command: ["subtask", "list"] },
 ] as const;
 
 const manifest = loadSurface(
@@ -39,9 +46,18 @@ registerSessionCommand(
   {} as SessionCommandDeps,
   runtime.onExit,
 );
+registerTaskContextCommands(
+  sessionProgram,
+  {} as SessionCommandDeps,
+  runtime.onExit,
+);
 
 for (const { file, command } of GOLDENS) {
-  let selected = command[0] === "session" ? sessionProgram : program;
+  const handWritten =
+    command[0] === "session" ||
+    (command[0] === "task" && command[1] === "context") ||
+    (command[0] === "subtask" && command[1] === "list");
+  let selected = handWritten ? sessionProgram : program;
   for (const segment of command) {
     const next = selected.commands.find(
       (candidate) => candidate.name() === segment,

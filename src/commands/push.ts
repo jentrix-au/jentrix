@@ -10,7 +10,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { Command } from "commander";
 
@@ -18,6 +19,7 @@ import { EXIT_CODES } from "../errors";
 import { createSessionRedactor } from "../session-host/session-redact";
 import { inspectRepository } from "../repo";
 import { callStructured, ToolCallError, UsageError } from "../tool-client";
+import { readContactEvidence, unreadPathsNamedIn } from "../session/contact";
 import { readAlignmentMarker } from "../session/state";
 import { readCurrentProviderHookContext } from "../session/provider-context";
 import { stacksBaseUrlOf, withCaller } from "../session/runtime";
@@ -84,6 +86,16 @@ export interface PushFlags {
    * (D6: convention over schema; the server stays dumb).
    */
   basis?: string[];
+  /**
+   * JEN-496 (hardening D5) — the stated reason a decision has NO basis. Writes
+   * the block as a single `- none — <reason>` line, so `parseBasisRefs`
+   * (server `src/lib/decision-basis.ts`) sees a block and the summary echoes
+   * the reason instead of `NO BASIS RECORDED`. One of `--basis`/`--no-basis`
+   * is now REQUIRED on a decision push: five basis-less memos went out across
+   * the two JEN-484 runs, four of them AFTER `session end` refused on E3, and
+   * the refusal taught the agent to push memos until the count matched (§4 G6).
+   */
+  noBasis?: string;
   session?: string;
   /** mvp-hardening AC4: address the push by TASK — no session, no marker. */
   task?: string;
@@ -172,6 +184,29 @@ export interface PushDeps extends SessionCommandDeps {
   fetchImpl?: typeof fetch;
   /** Injectable `--from-cmd` runner (tests); default spawns a local shell. */
   runCommand?(command: string): Promise<{ code: number; output: string }>;
+  /**
+   * JEN-496 (D11) — does this path exist in the checkout? Injectable so the
+   * gap check is testable without a real tree; defaults to a `statSync` under
+   * the repo root. Absent ⇒ the check cannot run and the push proceeds, which
+   * is the honest behaviour outside a checkout.
+   */
+  existsInCheckout?(path: string): boolean;
+}
+
+/**
+ * D11 — the default in-checkout test: relative to the process's cwd, and only
+ * for a REGULAR file. Never follows a path out of the tree (`..` and absolute
+ * paths are answered on their own terms by the filesystem, and a path outside
+ * the checkout is simply not something this session could have read here).
+ */
+function defaultExistsInCheckout(deps: PushDeps): (path: string) => boolean {
+  return (path: string) => {
+    try {
+      return statSync(resolve(deps.cwd(), path)).isFile();
+    } catch {
+      return false;
+    }
+  };
 }
 
 /**
@@ -232,6 +267,31 @@ export async function runPush(
       throw new UsageError(
         "--basis records what a decision rested on — it only applies to `jentrix push decision`",
       );
+    }
+    if (flags.noBasis !== undefined && kind !== "decision") {
+      throw new UsageError(
+        "--no-basis states why a DECISION has no basis — it only applies to `jentrix push decision`",
+      );
+    }
+    // D5 — a decision names what it rested on, or says why it did not. Refusal,
+    // not scaffolding: a memo whose basis block is empty is the current defect
+    // with better formatting.
+    if (kind === "decision" && !flags.ref) {
+      if (flags.basis?.length && flags.noBasis !== undefined) {
+        throw new UsageError(
+          'pass either --basis <ref> or --no-basis "<reason>", not both',
+        );
+      }
+      if (!flags.basis?.length && flags.noBasis === undefined) {
+        throw new UsageError(
+          'a decision records what it rested on: pass --basis <artifact-id-or-url> (repeatable), or --no-basis "<reason>" when it rested on your own reading',
+        );
+      }
+      if (flags.noBasis !== undefined && !flags.noBasis.trim()) {
+        throw new UsageError(
+          '--no-basis needs the reason: --no-basis "read the operations core myself; nothing filed to cite"',
+        );
+      }
     }
     // Evidence floor §5: --from-cmd is the LOG kind's attested capture — the
     // CLI runs the command and the body is what it observed, never a file.
@@ -328,6 +388,18 @@ export async function runPush(
       fallbackTaskId = marker.taskId;
     }
 
+    // D6 — an un-attested LOG says so. An honest pasted log is still worth
+    // keeping, so this WARNS and pushes; what it stops is the shape that
+    // closed the linear-sync run — "pnpm typecheck:mvp — GREEN (exit 0)"
+    // typed into a body, indistinguishable at a glance from a gate that ran.
+    // The server already marks only `--from-cmd` output `source: "cli"`;
+    // nothing on the push had ever said the difference aloud.
+    if (kind === "log" && flags.fromCmd === undefined && !flags.ref) {
+      deps.writeErr(
+        'UNATTESTED LOG — a pasted body is a claim, not evidence; use --from-cmd "<command>"',
+      );
+    }
+
     // §5 — the attested capture: run the command, remember its exit code (the
     // CLI's own exit code after a successful push), body opens with both.
     let commandExit: number | null = null;
@@ -350,6 +422,24 @@ export async function runPush(
           : "stdin is empty — pipe the content or name a file",
       );
     }
+    // D11/AC3.4 — a GAP is a known limitation, not an unread file. The
+    // export-zip run pushed a gap about a spec whose `toBe(1)` line it would
+    // have flipped, having never opened it (§4 G7). Refused with the path and
+    // the remedy, and with NO override flag: the one-line read that satisfies
+    // the check is the read that would have shown the answer.
+    if (kind === "gap" && correlatedSessionId) {
+      const unread = unreadPathsNamedIn(
+        raw,
+        readContactEvidence(deps.spoolRoot, correlatedSessionId),
+        deps.existsInCheckout ?? defaultExistsInCheckout(deps),
+      );
+      if (unread.length > 0) {
+        throw new UsageError(
+          `this gap names ${unread.length === 1 ? "a file" : "files"} in the checkout this session never opened: ${unread.join(", ")} — read ${unread.length === 1 ? "it" : "them"} or drop the path. (\`jentrix session contact --paths ${unread.join(",")}\` shows the same answer.)`,
+        );
+      }
+    }
+
     // AC2.1 — resolve the basis refs BEFORE anything is written: an
     // artifact-id ref that does not exist refuses the whole push, so a memo
     // can never cite context that was not filed first. The block goes at the
@@ -357,7 +447,9 @@ export async function runPush(
     // stored row's snippet without a second storage field (D6).
     const withBasis = flags.basis?.length
       ? `${await basisBlock(flags.basis, deps)}\n\n${raw}`
-      : raw;
+      : flags.noBasis !== undefined
+        ? `${noBasisBlock(flags.noBasis)}\n\n${raw}`
+        : raw;
 
     // Local redaction BEFORE anything leaves the process (PRD §6).
     const body = createSessionRedactor({ env: deps.env }).text(withBasis);
@@ -496,6 +588,16 @@ export async function runPush(
 // acts on its own. An offer that performs is not an offer, and a push whose
 // side effects the operator did not ask for is worse than no offer at all.
 // ---------------------------------------------------------------------------
+
+/**
+ * D5 — the SAME block shape for a decision that rested on nothing filed. One
+ * line, `- none — <reason>`, so the server's `parseBasisRefs` sees a block and
+ * the summary echoes the reason where it would otherwise print
+ * `NO BASIS RECORDED`. Pure — no ref to resolve, so no round trip.
+ */
+export function noBasisBlock(reason: string): string {
+  return `Based on:\n- none — ${reason.trim()}`;
+}
 
 /**
  * AC2.1 — the structured "Based on:" block (D6: convention over schema). URLs
@@ -1012,6 +1114,10 @@ export function registerPushCommand(
       [] as string[],
     )
     .option(
+      "--no-basis <reason>",
+      'decision pushes only: state WHY this decision rests on nothing filed — written as "Based on:\\n- none — <reason>". Required when --basis is absent.',
+    )
+    .option(
       "--session <id>",
       "explicit session id (default: this checkout's alignment)",
     )
@@ -1041,7 +1147,32 @@ export function registerPushCommand(
       'log pushes only: run the command locally, capture exit code + a 64 KB tail-biased output tail, and push an ATTESTED LOG opening with both — then exit with the command\'s own code ("tests green" claims carry evidence)',
     )
     .option("--json", "stable JSON output")
-    .action(async (kind: string, file: string | undefined, flags: PushFlags) =>
-      onExit(await runPush(kind, file, flags, deps)),
+    .action(async (kind: string, file: string | undefined, raw: PushFlags) =>
+      onExit(await runPush(kind, file, normalizeBasisFlags(raw), deps)),
     );
+}
+
+/**
+ * D5 — commander owns `--no-` and will not share it. `--no-basis <reason>` is
+ * parsed as the NEGATION of `--basis`, so both land on the same `basis`
+ * attribute and commander offers no way to rename either: `--basis a --basis b`
+ * arrives as an array, `--no-basis "reason"` as a string. The ambiguity is
+ * commander's, so it is resolved at commander's edge and nowhere else —
+ * `PushFlags` and `runPush` see two separate, typed fields, and every test
+ * that calls `runPush` directly passes them that way.
+ *
+ * The flag name is not negotiable: `--no-basis "<reason>"` is the form the
+ * hardening PRD specifies and the plugin workflows will print.
+ */
+export function normalizeBasisFlags(raw: PushFlags): PushFlags {
+  const basis = raw.basis as unknown;
+  if (typeof basis === "string") {
+    return { ...raw, basis: [], noBasis: basis };
+  }
+  // `--no-basis` with no value cannot happen (the option takes a required
+  // argument), but a bare boolean would be commander's negation default.
+  if (basis === false) {
+    return { ...raw, basis: [], noBasis: "" };
+  }
+  return raw;
 }

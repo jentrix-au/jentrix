@@ -53,6 +53,15 @@ export interface UsageReceipt {
   modelId?: string | null;
   /** Monotonic ms when the receipt was observed. */
   at: number;
+  /**
+   * JEN-494 (D12) — epoch ms the PROVIDER stamped on the event, when it
+   * carried a parseable one. `at` above is this process's monotonic clock,
+   * which the Codex live path also uses for its turn marks; the Claude path
+   * replays transcript timestamps into its turn intervals instead, and the
+   * two clocks are different scales. Coverage compares a turn against
+   * whichever of the two the receipt can offer.
+   */
+  atWall?: number | null;
 }
 
 export interface LifecycleInterval {
@@ -129,14 +138,19 @@ export function aggregateSessionUsage(input: {
   const missing: string[] = [...(input.namedGaps ?? [])];
 
   // Rule 2/5 (AC38): one receipt contributes at most once — dedupe by identity.
-  const seen = new Set<string>();
-  const receipts = input.receipts
-    .filter((r) => {
-      if (seen.has(r.eventId)) return false;
-      seen.add(r.eventId);
-      return true;
-    })
-    .sort((a, b) => a.at - b.at);
+  //
+  // JEN-494 (D1): the LAST receipt for a repeated key wins, not the first. The
+  // Claude mapper keys a receipt by API `message.id`, and a streamed message
+  // writes one transcript entry per content block repeating that message's
+  // usage — the last of them carries the message's final `output_tokens`,
+  // while the earlier ones can be partial. First-wins would have been safe on
+  // the two JEN-484 transcripts (their blocks repeat the total verbatim) and
+  // wrong on any message Claude streams incrementally, so the rule follows
+  // the contract rather than the sample.
+  const lastByEvent = new Map<string, UsageReceipt>();
+  for (const receipt of input.receipts)
+    lastByEvent.set(receipt.eventId, receipt);
+  const receipts = [...lastByEvent.values()].sort((a, b) => a.at - b.at);
 
   let inputTokens = 0;
   let outputTokens = 0;
@@ -370,8 +384,34 @@ export function aggregateSessionUsage(input: {
   const tool = sumIntervals(input.toolIntervals, "tool");
 
   // Rule 9: COMPLETE needs a usable receipt for every observable provider turn.
+  //
+  // JEN-494 (D12/G2): `turnId` stays the FIRST test, and a receipt observed
+  // INSIDE a turn's own interval is the second. Rollout receipts are pushed
+  // with `turnId: null` (the transcript names no turn), so the id test alone
+  // reported "carried no usable usage receipt" for every turn of every
+  // hooks+rollout session and PARTIAL for totals that were in fact complete.
+  // Both clocks are searched because they are different scales; a monotonic
+  // value can never land inside an epoch-ms interval, so the pair is a union
+  // of two disjoint domains rather than a widened match.
+  const receiptStamps = receipts
+    .flatMap((r) => [r.at, r.atWall])
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v))
+    .sort((a, b) => a - b);
+  const anyStampInside = (from: number, to: number): boolean => {
+    // Binary search for the first stamp >= from; inside when it is also <= to.
+    let lo = 0;
+    let hi = receiptStamps.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (receiptStamps[mid]! < from) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < receiptStamps.length && receiptStamps[lo]! <= to;
+  };
   const turnsWithoutReceipts = input.providerTurns.filter(
-    (t) => !receiptTurnIds.has(t.id),
+    (t) =>
+      !receiptTurnIds.has(t.id) &&
+      !(t.endedAt != null && anyStampInside(t.startedAt, t.endedAt)),
   );
   for (const turn of turnsWithoutReceipts) {
     missing.push(`provider turn ${turn.id} carried no usable usage receipt`);

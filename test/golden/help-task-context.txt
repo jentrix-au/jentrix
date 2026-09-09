@@ -1,0 +1,9 @@
+Usage: jentrix task context [options]
+
+The card in ONE call: description, links both ways, subtasks, the latest
+artifact of each type, and the last five comments.
+
+Options:
+  --task <id-or-key>  the task (id or key like JEN-42)
+  --json              print the same bundle as one JSON object
+  -h, --help          display help for command

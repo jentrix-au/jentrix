@@ -27,6 +27,7 @@ import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command, CommanderError } from "commander";
 
+import { readFolderBinding } from "./binding";
 import { CLI_VERSION, connectJentrixClientWithRefresh } from "./client";
 import {
   ConfigError,
@@ -75,6 +76,7 @@ import { defaultGitRunner, inspectRepository } from "./repo";
 import { registerAlignCommand } from "./commands/align";
 import { registerFolderCommand, runFolderAlign } from "./commands/folder";
 import { registerMcpCommand } from "./commands/mcp";
+import { registerTaskContextCommands } from "./commands/task-context";
 import { registerTaskProjectCommand } from "./commands/task-project";
 import { registerMintIssueCommand, registerPushCommand } from "./commands/push";
 import { registerSetupCommand } from "./commands/setup";
@@ -268,6 +270,15 @@ const deps: ToolCommandDeps = {
     );
     return marker?.sessionId ?? null;
   },
+  // JEN-495 (D4): the folder binding at the GIT ROOT — the one trusted answer
+  // to "which workspace does a human task key belong to" (§11.4). Null outside
+  // a bound checkout, which is what makes `--task JEN-42` there say
+  // TASK_WORKSPACE_REQUIRED instead of guessing a workspace.
+  folderWorkspaceId: async () => {
+    const inspection = await inspectRepository(process.cwd());
+    if (!inspection) return null;
+    return readFolderBinding(inspection.root)?.workspaceId ?? null;
+  },
   readStdin,
   readFile: (path) => readFileSync(path, "utf8"),
   writeOut: (text) => process.stdout.write(`${text}\n`),
@@ -453,6 +464,9 @@ registerSnapshotCommand(sessionCommand, sessionDeps, onExit);
 registerFolderCommand(program, sessionDeps, onExit);
 registerAlignCommand(program, sessionDeps, onExit);
 registerTaskProjectCommand(program, sessionDeps, onExit);
+// D3/D4 — `task context` and `subtask list` reuse the `task`/`subtask` groups
+// (hand-registered here, extended by the generated tree below).
+registerTaskContextCommands(program, sessionDeps, onExit);
 registerMcpCommand(program, sessionDeps, onExit);
 registerPushCommand(program, sessionDeps, onExit);
 

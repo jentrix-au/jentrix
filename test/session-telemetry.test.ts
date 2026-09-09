@@ -41,6 +41,12 @@ const EMPTY = {
 describe("telemetryVerdict", () => {
   it("reports the four-way split verbatim and warns about nothing", () => {
     const verdict = telemetryVerdict("ses_1", FULL, true);
+    // JEN-494 AC1.7 — the aggregation rule, named once, on the line that
+    // reports the figures it produced.
+    assert.match(
+      verdict.line,
+      /· receipts: one per API message \(last record wins\)$/,
+    );
     assert.equal(verdict.state, "recorded");
     assert.equal(verdict.warning, null);
     assert.match(verdict.line, /1309413/);

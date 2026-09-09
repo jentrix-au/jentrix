@@ -73,13 +73,20 @@ export async function callTool(
 
   return {
     exitCode: EXIT_CODES.OK,
-    stdout: renderSuccess(result, options),
+    stdout: renderSuccess(result, options, name),
   };
 }
 
-function renderSuccess(result: unknown, options: CallOptions): string {
+function renderSuccess(
+  result: unknown,
+  options: CallOptions,
+  tool: string,
+): string {
   if (isRecord(result) && result.structuredContent !== undefined) {
-    return renderResult(result.structuredContent, { json: options.json });
+    return renderResult(result.structuredContent, {
+      json: options.json,
+      tool,
+    });
   }
   // No structuredContent (foreign server / non-P2.2 tool): pass the text
   // content through untouched rather than inventing structure.

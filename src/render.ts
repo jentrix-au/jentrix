@@ -13,6 +13,14 @@
 
 export interface RenderOptions {
   json: boolean;
+  /**
+   * JEN-495 (D4) — the tool that produced this result, when the caller knows
+   * it. Only `search_tasks` reads it: its rows carry thirteen columns, and the
+   * generic table wrapped every hit across several terminal lines, so an agent
+   * cut the page with `head -30` and never saw the one card that held prior
+   * context (§4 G5). Absent = the generic table, unchanged.
+   */
+  tool?: string;
 }
 
 const MAX_CELL_WIDTH = 60;
@@ -43,9 +51,57 @@ export function renderResult(
   options: RenderOptions,
 ): string {
   if (options.json) return stableStringify(structuredContent);
+  if (options.tool === "search_tasks") {
+    const hits = renderTaskSearch(structuredContent);
+    if (hits !== null) return hits;
+  }
   const list = detectListShape(structuredContent);
   if (list) return renderListShape(list);
   return stableStringify(structuredContent);
+}
+
+/**
+ * D4 — ONE LINE PER HIT: `KEY  title · board · column · updated`, then the
+ * server's own `total`, then the continuation when the page was cut. The
+ * server's ORDER is kept exactly (exact-key hits first, then rank): a client
+ * that re-sorts a page disagrees with the query that produced it.
+ *
+ * Returns null when the payload is not the shape this renderer understands,
+ * so an unexpected result falls back to the generic table rather than to a
+ * confidently wrong summary.
+ */
+function renderTaskSearch(value: unknown): string | null {
+  if (!isRecord(value) || !Array.isArray(value.results)) return null;
+  const rows = value.results;
+  if (!rows.every(isRecord)) return null;
+  const lines: string[] = [];
+  if (rows.length === 0) {
+    lines.push("no matching tasks");
+  } else {
+    const keyWidth = Math.max(
+      ...rows.map((row) => String(row.key ?? row.id ?? "").length),
+    );
+    for (const row of rows) {
+      const facets = [row.boardName, row.columnName, row.updatedAt]
+        .filter((part) => typeof part === "string" && part)
+        .join(" · ");
+      lines.push(
+        `${String(row.key ?? row.id ?? "").padEnd(keyWidth)}  ${cellText(
+          row.title,
+        )}${facets ? `  · ${facets}` : ""}`,
+      );
+    }
+  }
+  if (typeof value.totalCount === "number") {
+    lines.push(`total: ${value.totalCount}`);
+  }
+  if (typeof value.nextCursor === "string" && value.nextCursor) {
+    lines.push(`next: --cursor ${value.nextCursor}`);
+  }
+  if (typeof value.notice === "string" && value.notice) {
+    lines.push(value.notice);
+  }
+  return lines.join("\n");
 }
 
 interface ListShape {
