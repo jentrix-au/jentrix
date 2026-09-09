@@ -32,15 +32,26 @@ pipeline), the typed artifacts ARE the record — push them before closing:
    - Push the final report: write a concise session report (what was done,
      what changed, what's next) and run
      `jentrix push report --title "<short title>"` with the content on stdin.
-   - Push any decisions made this session that were not already pushed:
-     `jentrix push decision --basis <artifact-id|url> …` (one per decision;
-     `--basis` is repeatable and names what the decision rested on — file the
-     context first so the ref resolves).
+   - Push any decisions made this session that were not already pushed. **Ask
+     what the decision rested on BEFORE you write the memo** — the basis is
+     not a field to fill in afterwards, it is the thing that makes the memo a
+     decision rather than an assertion. For each one, answer "what did this
+     rest on?" first, then push:
+     `jentrix push decision --basis <artifact-id|url> …` (repeatable; file the
+     context first so the ref resolves), or, when it genuinely rested on your
+     own reading of the code and there is nothing filed to cite,
+     `jentrix push decision --no-basis "<the reason>"`. The command REFUSES
+     without one of the two, and a memo with neither would not have counted
+     toward E2/E3 anyway.
    - **Gap sweep**: every promised-but-undone item becomes a
      `jentrix push gap` — one per gap, title stating the claim ("Windows hook
      path untested"). A session with no output MUST have at least one gap
      explaining why. Push `jentrix push issue` for anything found broken and
-     not yet recorded.
+     not yet recorded. A gap that names a file in this checkout the session
+     never OPENED is refused with the path and the remedy: read it or drop the
+     path. That refusal is not an obstacle to route around — the one-line read
+     that satisfies it is the read that would have told you whether the gap is
+     real.
    - Push any durable lessons: `jentrix push learning …`.
    - Do NOT push a diff by hand. When HEAD moved, `jentrix session end`
      generates the real `git log --patch` for the session's range itself and
@@ -94,18 +105,28 @@ pipeline), the typed artifacts ARE the record — push them before closing:
    say so if the user seems to expect it.
 
 **Evidence floor.** `jentrix session end` enforces fixed checks and will
-REFUSE to close when they are unmet: E1 — HEAD moved but no attested DIFF
-(the CLI pushes the real patch itself; just re-run `session end` from the
-aligned checkout); E2 — commits with no `jentrix push decision` and no
-declared-deviation `jentrix push gap`; E3 — a REPORT carrying `## Learnings`
-/ `## Gaps` / `## Decisions` sections while the session has zero
-corresponding typed artifacts (split them into `push learning|gap|decision`,
-never one blob). Comply by pushing the named evidence and retrying, or
-deviate honestly with a `gap` — `--acknowledge-evidence-gaps` closes anyway
-and stamps each unmet check MISSING into Review readiness. Run every gate
-through `jentrix push log --from-cmd "<command>"` (it records the exit code
-and output tail as a LOG and exits with the command's own code), so "tests
-green" claims carry evidence instead of tripping the E4 advisory.
+REFUSE to close when they are unmet:
+
+- **E1** — HEAD moved but no attested DIFF (the CLI pushes the real patch
+  itself; just re-run `session end` from the aligned checkout).
+- **E2** — commits with no `jentrix push decision` **that names its basis**,
+  and no declared-deviation `jentrix push gap`. Basis-less memos do not count,
+  however many are pushed: the count was never the evidence.
+- **E3** — a REPORT carrying `## Learnings` / `## Gaps` / `## Decisions`
+  sections while the session has zero corresponding typed artifacts (split
+  them into `push learning|gap|decision`, never one blob).
+- **E4** — a REPORT that CLAIMS a gate refuses the close unless the session
+  has an attested LOG (`jentrix push log --from-cmd`) whose command names the
+  **same gate family**: `typecheck` · `lint` · `test` · `e2e`. Family, not
+  exact command — "tests green" is covered by `pnpm test:mvp` and is NOT
+  covered by `pnpm lint`. A pasted LOG covers nothing; the CLI warns
+  `UNATTESTED LOG` when you push one, and the summary marks it.
+
+Comply by pushing the named evidence and retrying, or deviate honestly with a
+`gap`. `--acknowledge-evidence-gaps` closes anyway and stamps each unmet check
+MISSING into Review readiness — reach for it when the gap is real, never to get
+past a check you could satisfy by running the gate. A refusal leaves the
+session AND its capture host running, so the comply work is still recorded.
 
 ## Shared boundaries
 

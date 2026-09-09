@@ -1,5 +1,5 @@
 {
   "name": "jentrix",
   "description": "Connect this Claude Code session to a Jentrix project: /jentrix-connect binds the current session (trusted lifecycle hooks supply the session id), /jentrix-align anchors it to a task with an accountable owner, /jentrix-plan, /jentrix-checkpoint, /jentrix-review, /jentrix-status and /jentrix-end wrap the same session operations. Business logic lives in the Jentrix CLI — removing this plugin leaves `jentrix session connect` as the universal fallback.",
-  "version": "0.6.0"
+  "version": "0.6.1"
 }

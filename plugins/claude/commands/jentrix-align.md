@@ -47,6 +47,21 @@ wizard; a Project is an optional task label and is never part of it).
    `/jentrix-end` moves it to In review when the work is genuinely finished —
    the terminal move is the operator's Accept, never yours.
 
+5. **Finish by reading the card**, and relay what comes back:
+
+   ```
+   jentrix task context --task <that task>
+   ```
+
+   One call returns the description, the links BOTH ways with their titles,
+   the subtasks, the latest artifact of each type with its id, and the last
+   five comments. Read it before you touch any code: a linked card is usually
+   where the prior round's reasoning lives, and its artifacts are the context
+   you would otherwise reconstruct from scratch. If it prints
+   `no links · no artifacts · no comments`, the card has nothing to give and
+   you stop looking — that single line is the answer, not an invitation to run
+   `task get`, `task search` and `comment list` to confirm it.
+
 Notes for you (the assistant):
 
 - Do NOT pass `--provider-session` — the CLI reads the current session id and

@@ -45,27 +45,63 @@ the plan, when a long investigation resolves, or before handing the work over.
 2. Do not summarize the transcript. Do not restate the prompt. Do not include
    anything you have not verified this session — a checkpoint that carries a
    guess as a fact poisons every session that reads it.
-3. Push it:
+3. **If the checkpoint claims a gate, run the gate first.** A checkpoint that
+   says "typecheck green" without an attested LOG behind it is a claim, and
+   `jentrix session end` now REFUSES a close whose report claims a gate family
+   (`typecheck` · `lint` · `test` · `e2e`) with no attested LOG of that same
+   family. So, before writing the body: for each gate you are about to name,
+   check whether this session already has an attested LOG for it, and if not,
+   run it —
+
+   ```
+   jentrix push log --from-cmd "<the gate command>"
+   ```
+
+   — then cite the returned artifact id in the checkpoint beside the claim.
+   The command exits with the GATE's own code, so a red gate stays red and you
+   report it red. If you are not going to run it, do not claim it: say what was
+   not run and why.
+
+4. **`## Code contact`** — the files the objective named, and which of them
+   this session actually opened:
+
+   ```
+   jentrix session contact --paths <the files the PROMPT/GOAL named>
+   ```
+
+   List the never-opened ones under that heading, verbatim. This is the check
+   that catches the expensive failure: work built on a file nobody read. If the
+   answer says no local activity skeleton exists, say THAT — "never opened" by
+   absence is not the same claim as "never opened" by evidence.
+
+5. Push it — as an ARTIFACT, never as a comment. A "Checkpoint" posted as a
+   comment is not a checkpoint: the summary counts REPORTs titled
+   `Checkpoint — …` and prints `checkpoints: N`, and a comment counts zero.
    - `jentrix push learning --title "Checkpoint — <topic>"` when it is durable
      knowledge worth carrying past this work;
    - `jentrix push report --title "Checkpoint — <topic>"` when it is the
      state of THIS work.
    Content goes on stdin.
-4. Relay the returned `artifactId` to the operator, and say which kind you
+6. Relay the returned `artifactId` to the operator, and say which kind you
    chose and why.
-5. If the session's task status no longer matches reality, fix it now:
+7. If the session's task status no longer matches reality, fix it now:
    `jentrix column list --board <boardId>` then
    `jentrix task move --task <id> --to-column-id <id>`. Only the columns the
    board actually has.
 
 **Cadence duty (evidence floor).** Checkpoint after EVERY commit, not only at
-the end: push the `decision` (with `--basis`) the commit rested on the moment
-it lands, and run its gates through `jentrix push log --from-cmd "<command>"`
-so the exit code and output tail are recorded as a LOG. Record quality must
-track the work, not end-of-session diligence — `jentrix session end` enforces
-this (it refuses on commits with no decision record and on sectioned reports
-with no typed artifacts; a deliberate exception is an ordinary
-`jentrix push gap`).
+the end: push the `decision` the commit rested on the moment it lands — with
+`--basis <artifact-id-or-url>`, or `--no-basis "<reason>"` when it rested on
+your own reading and there is nothing filed to cite (the command REFUSES
+without one of the two) — and run its gates through `jentrix push log
+--from-cmd "<command>"` so the exit code and output tail are recorded as a LOG.
+Record quality must track the work, not end-of-session diligence — `jentrix
+session end` enforces this: it refuses on commits with no decision record that
+names its basis, on sectioned reports with no typed artifacts, and on a gate
+claimed in prose with no attested LOG of that gate family. A deliberate
+exception is an ordinary `jentrix push gap` — but a gap that names a file in
+the checkout this session never opened is itself refused, because that is not a
+limitation, it is an unread file.
 
 Note for the operator: this records the distillation. On a session aligned
 with `--capture`, the raw pre-compaction range is preserved separately and
