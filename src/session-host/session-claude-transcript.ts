@@ -37,6 +37,14 @@ interface ClaudeTranscriptEntry {
   message?: {
     role?: string;
     /**
+     * JEN-494 (hardening D1) — the API message id. Claude Code writes ONE
+     * transcript entry per CONTENT BLOCK of a streamed message and repeats the
+     * message's usage on each, so the entry uuid is a per-block key and summing
+     * over it counts one message many times. This is the per-MESSAGE identity.
+     * Absent on old transcripts, which keep the per-entry fallback.
+     */
+    id?: string;
+    /**
      * control-room AC2.1 — the model the provider ACTUALLY ran, as Claude Code
      * stamps it on every assistant entry. Free: the host already tails this
      * file, and nothing else in the record knows which model produced the work.
@@ -80,6 +88,12 @@ export interface MappedTranscriptLine {
    * state, and it lives in ClaudeTimingTracker, not in this mapper.
    */
   timing?: TimingLine;
+  /**
+   * JEN-494 (D1) — the API message this assistant entry is one block of, when
+   * the entry names it. Reported, not accumulated: joining a message's blocks
+   * is cross-line state and belongs to the bridge.
+   */
+  messageId?: string;
 }
 
 function baseEvent(
@@ -159,10 +173,22 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
     typeof entry.message?.model === "string" && entry.message.model.trim()
       ? entry.message.model.trim()
       : undefined;
+  const messageId =
+    typeof entry.message?.id === "string" && entry.message.id.trim()
+      ? entry.message.id.trim()
+      : undefined;
   const blocks = Array.isArray(content) ? content : [];
   const text = textOf(content);
   if (text) {
-    events.push(baseEvent(entry, "assistant_message", { text }));
+    // D12: `messageId` rides the payload so the bridge can join the text
+    // blocks of ONE streamed message; without it the "final response" is
+    // whichever block happened to land last.
+    events.push(
+      baseEvent(entry, "assistant_message", {
+        text,
+        ...(messageId ? { messageId } : {}),
+      }),
+    );
   }
   for (const block of blocks) {
     if (block.type === "tool_use") {
@@ -188,7 +214,15 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
       typeof usage.cache_read_input_tokens === "number" ||
       typeof usage.output_tokens === "number")
   ) {
-    // Claude reports PER-TURN usage — a delta receipt keyed by the entry uuid.
+    // D1 — ONE receipt per API MESSAGE, not per transcript entry. Claude Code
+    // writes one entry per content block of a streamed message and repeats the
+    // message's usage on each, so keying by the entry uuid counted a 3-block
+    // message three times (§4 G1: 1.4–4.4× inflation on every figure the
+    // product shows). Keyed by `message.id` when the entry names one; entries
+    // without it keep the per-entry key, which is the old behaviour exactly
+    // (AC1.2). The rollup keeps the LAST receipt for a repeated key — the last
+    // record of a message carries its final `output_tokens`.
+    //
     // Anthropic's input_tokens EXCLUDES cache tokens (siblings, not a subset —
     // unlike OpenAI's cached_input_tokens), so total input is the three summed.
     // The cache split rides along (AGE-938) — but only when the entry actually
@@ -219,7 +253,8 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
           // stays "unreported"), never a fabricated 0 — the same rule as the
           // cache fields above. A receipt without it prices every write at
           // the 5-minute rate, which PRICING_BASIS discloses.
-          ...(typeof usage.cache_creation?.ephemeral_1h_input_tokens === "number"
+          ...(typeof usage.cache_creation?.ephemeral_1h_input_tokens ===
+          "number"
             ? {
                 cacheCreation1hTokens:
                   usage.cache_creation.ephemeral_1h_input_tokens,
@@ -241,11 +276,18 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
         ":usage",
       ),
     );
+    if (messageId) {
+      events[events.length - 1] = {
+        ...events[events.length - 1],
+        providerEventId: `msg:${messageId}:usage`,
+      };
+    }
   }
   return {
     events,
     unrecognized: false,
     ...(modelId ? { modelId } : {}),
+    ...(messageId ? { messageId } : {}),
     ...timingOf(entry, {
       toolStarts: blocks
         .filter((block) => block.type === "tool_use")

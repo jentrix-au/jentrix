@@ -210,6 +210,14 @@ export class SessionBridge {
    * model can never overwrite a proven one server-side.
    */
   private observedModelId: string | null = null;
+  /**
+   * JEN-494 (AC1.6/D12) — one attempt, ever. The alignment snapshot is built
+   * from `session.modelId` at align time, so a session aligned BEFORE its
+   * first assistant entry carries `agent.modelId: null` for its whole life
+   * while the producer says `claude-opus-5` (§4 G3, seen on JEN-486). Set
+   * before the call, not after: a failing re-stamp must not retry every beat.
+   */
+  private alignmentModelRestamped = false;
   private observingSince: number | null = null;
   private readonly ackedParts = new Map<number, string>();
   private readonly terminalParts = new Set<number>();
@@ -229,6 +237,8 @@ export class SessionBridge {
     text: string;
     at: string;
     sequence: number;
+    /** D12: the API message these blocks belong to, when the mapper named one. */
+    messageId?: string;
   } | null = null;
   /**
    * Session evidence floor (PRD §4): the v1 activity skeleton, accumulated
@@ -357,15 +367,32 @@ export class SessionBridge {
     // Evidence floor (PRD §4): the skeleton observes the REDACTED event —
     // counts/names/paths only, independent of whether anything was spooled.
     this.skeleton?.observe(full);
+    this.persistSkeletonSnapshot();
     if (full.kind === "assistant_message") {
       // Read off the REDACTED payload, so the text kept here has already been
       // through the local pass — exactly like a spooled part.
       const text = (full.payload as { text?: unknown })?.text;
+      const rawMessageId = (full.payload as { messageId?: unknown })?.messageId;
+      const messageId =
+        typeof rawMessageId === "string" && rawMessageId.trim()
+          ? rawMessageId.trim()
+          : undefined;
       if (typeof text === "string" && text.trim().length > 0) {
+        // JEN-494 (D12/G4): a streamed message is written as one transcript
+        // entry per content block, so keeping "the last assistant_message"
+        // stored the last BLOCK and filed a mid-turn fragment as the session's
+        // final response. Blocks sharing a `message.id` are joined; an event
+        // without one (Codex, an old transcript) keeps the last-wins rule.
+        const continues =
+          messageId !== undefined &&
+          this.lastAssistantMessage?.messageId === messageId;
         this.lastAssistantMessage = {
-          text,
+          text: continues
+            ? `${this.lastAssistantMessage!.text}\n${text}`
+            : text,
           at: full.at,
           sequence: full.sequence,
+          ...(messageId ? { messageId } : {}),
         };
       }
     }
@@ -412,6 +439,12 @@ export class SessionBridge {
             ? { modelId: payload.modelId.trim() }
             : {}),
           at: this.now(),
+          // D12: the provider's own stamp beside the monotonic one, so a
+          // rollout receipt can be matched against a turn interval replayed
+          // from the same transcript clock.
+          ...(Number.isFinite(Date.parse(full.at))
+            ? { atWall: Date.parse(full.at) }
+            : {}),
         });
         // Durable telemetry: a host that dies before completing (crash,
         // revoked bearer) must not take the usage rollup with it — `stacks
@@ -528,6 +561,39 @@ export class SessionBridge {
     return updatedAt;
   }
 
+  /**
+   * JEN-496 (D11) — the activity skeleton, beside `usage.json`.
+   *
+   * The skeleton is content-free metadata collected INDEPENDENTLY of TRACE,
+   * and TRACE-off is the MVP default — so a capture-off session spools no
+   * event parts at all and `jentrix session contact` would have had nothing
+   * local to read on exactly the configuration everyone runs. One small file,
+   * the same best-effort write as the usage snapshot, 0600 like every spool
+   * file. Bounded by the skeleton's own 32 KB cap.
+   *
+   * Throttled to once a second: a skeleton snapshot per observed EVENT is a
+   * write per transcript line, and nothing reads this file at that resolution.
+   */
+  private lastSkeletonWriteAt = 0;
+  private persistSkeletonSnapshot(): void {
+    if (!this.skeleton?.observedAnything) return;
+    const now = this.now();
+    if (now - this.lastSkeletonWriteAt < 1000) return;
+    this.lastSkeletonWriteAt = now;
+    try {
+      writeFileSync(
+        join(this.deps.spool.directory, "skeleton.json"),
+        JSON.stringify({
+          skeleton: this.skeletonSnapshot(),
+          updatedAt: this.wall().toISOString(),
+        }),
+        { mode: 0o600 },
+      );
+    } catch {
+      // Same rule as the usage snapshot: never fail capture over a record.
+    }
+  }
+
   /** Best-effort spool-side snapshot of the current rollup (provider receipts). */
   private persistUsageSnapshot(): void {
     try {
@@ -634,6 +700,10 @@ export class SessionBridge {
   private async postHeartbeat(now: number): Promise<boolean> {
     this.lastHeartbeatAt = now;
     const bearer = this.bearerOf();
+    // Read ONCE: the re-stamp below is only sound if THIS beat carried the
+    // model, because it is the beat that writes `session.modelId`, which is
+    // what the rebuilt alignment snapshot reads.
+    const sentModelId = this.observedModelId;
     try {
       const response = await this.retrying(() =>
         this.fetch()(
@@ -650,9 +720,7 @@ export class SessionBridge {
               // observed" channel. No new timer, no new route, no new tool —
               // and host-attested by construction, since the route writes only
               // the authenticated operator's own open session.
-              ...(this.observedModelId
-                ? { modelId: this.observedModelId }
-                : {}),
+              ...(sentModelId ? { modelId: sentModelId } : {}),
               // control-room AC4.1: the LIVE usage receipt on the same beat.
               // Sent only once a receipt has actually been observed — an empty
               // rollup would overwrite the session's totals with nulls and
@@ -665,7 +733,7 @@ export class SessionBridge {
               // unknown key). Sent only once something was observed: null column
               // means "never observed", never an empty object.
               ...(this.skeleton?.observedAnything
-                ? { activitySkeleton: this.skeleton.snapshot() }
+                ? { activitySkeleton: this.skeletonSnapshot() }
                 : {}),
             }),
           },
@@ -694,10 +762,52 @@ export class SessionBridge {
           `capture: heartbeat rejected (HTTP ${response.status}) — liveness at risk; the sweep may interrupt this session`,
         );
       }
+      if (response.ok && sentModelId) {
+        // Fire-and-forget: a re-stamp must never delay or fail a heartbeat.
+        void this.restampAlignmentModel(sentModelId);
+      }
       return response.ok;
     } catch {
       // Offline: the sweep may interrupt server-side; reconnection resumes.
       return false;
+    }
+  }
+
+  /**
+   * AC1.6 — teach the ALIGNMENT what the producer already knows. Runs at most
+   * once per host, after the first heartbeat that carried a model (that beat
+   * is what set `session.modelId`, which `align_agent_session` copies into the
+   * rebuilt snapshot). A same-task re-align: `taskId` is read back and passed
+   * through unchanged, so this crosses no attribution boundary and needs no
+   * usage flush. Silent on every failure — an unstamped alignment is the
+   * status quo, and a host that dies re-stamping is not.
+   */
+  private async restampAlignmentModel(modelId: string): Promise<void> {
+    if (this.alignmentModelRestamped) return;
+    this.alignmentModelRestamped = true;
+    try {
+      const session = (await this.deps.callTool("get_agent_session", {
+        sessionId: this.deps.sessionId,
+      })) as {
+        updatedAt?: unknown;
+        taskId?: unknown;
+        alignmentSnapshot?: { agent?: { modelId?: unknown } } | null;
+      };
+      const stamped = session.alignmentSnapshot?.agent?.modelId;
+      // Already agrees (or names some other model the operator set): leave it.
+      if (typeof stamped === "string" && stamped.trim()) return;
+      if (typeof session.updatedAt !== "string") return;
+      await this.deps.callTool("align_agent_session", {
+        sessionId: this.deps.sessionId,
+        taskId: typeof session.taskId === "string" ? session.taskId : null,
+        expectedUpdatedAt: session.updatedAt,
+      });
+      this.deps.log?.(
+        `alignment: model re-stamped as ${modelId} (it carried none at align time)`,
+      );
+    } catch {
+      // A CAS race with an operator's own `jentrix session align`, an older
+      // server, a revoked bearer: the alignment keeps the null it had.
     }
   }
 
@@ -877,6 +987,21 @@ export class SessionBridge {
     return header + kept + notice;
   }
 
+  /**
+   * D12 — the skeleton with the provider-turn count folded in. One place, so
+   * every submission path reports the same `turns`.
+   */
+  private skeletonSnapshot() {
+    this.skeleton?.noteProviderTurns(this.providerTurns.size);
+    return this.skeleton?.snapshot();
+  }
+
+  /** Flush the spool-side skeleton past its throttle (close, forced beat). */
+  flushSkeletonSnapshot(): void {
+    this.lastSkeletonWriteAt = 0;
+    this.persistSkeletonSnapshot();
+  }
+
   /** The §12.5 rollup over everything observed so far. */
   usageRollup() {
     const ranges = [...this.observedRanges];
@@ -973,6 +1098,7 @@ export class SessionBridge {
     // session is still open — the heartbeat route only writes open sessions.
     // Also the close-time usage flush the Codex host used to make on its own.
     await this.flushUsageNow().catch(() => false);
+    this.flushSkeletonSnapshot();
     // AGE-649: BEFORE the completion call — `COMPLETED` seals the session
     // against typed pushes, so there is no "after" for this.
     const finalResponseArtifactId = await this.pushFinalResponse();

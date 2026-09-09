@@ -17,6 +17,7 @@ import {
 } from "./session-options";
 import { runSessionAlign } from "../session/alignment";
 import { runSessionDoctor } from "../session/doctor";
+import { runSessionContact } from "../session/contact";
 import { runSessionStatus } from "../session/status";
 import { runSessionEnd } from "../session/end";
 import { Command, Option } from "commander";
@@ -104,6 +105,25 @@ export function registerSessionCommand(
     .option("--json", "stable JSON output")
     .action(async (sessionId: string | undefined, flags: { json?: boolean }) =>
       onExit(await runSessionStatus(sessionId, flags, deps)),
+    );
+  // JEN-496 (D11) — "which of these files did this session open?", answered
+  // from the local skeleton. Beside `status` because it is the same question
+  // about the same session, asked of a different column of the record.
+  session
+    .command("contact [sessionId]")
+    .description(
+      "Answer which of the named files this session actually opened, from the local activity skeleton.",
+    )
+    .option(
+      "--paths <a,b,c>",
+      "the files to ask about (comma- or space-separated)",
+    )
+    .option("--json", "stable JSON output")
+    .action(
+      async (
+        sessionId: string | undefined,
+        flags: { paths?: string; json?: boolean },
+      ) => onExit(await runSessionContact(sessionId, flags, deps)),
     );
   session
     .command("end [sessionId]")

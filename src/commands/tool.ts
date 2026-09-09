@@ -21,6 +21,8 @@ import { unauthorizedMessage } from "../client";
 import { isUnauthorizedError } from "../errors";
 import { ConfigError, resolveConfig, type JentrixConfigFile } from "../config";
 import { EXIT_CODES } from "../errors";
+import { isTaskKey, taskLookupArgs, resolveTask } from "../task-resolution";
+import { ToolCallError, UsageError } from "../tool-client";
 
 /** Default RATE_LIMITED policy (design.md Phase 1): 2 retries, 60s cap. */
 export const DEFAULT_MAX_RETRIES = 2;
@@ -90,6 +92,20 @@ export interface ToolCommandDeps {
    * server side was correct all along; the header simply was never sent.
    */
   sessionId?(): Promise<string | null>;
+  /**
+   * JEN-495 (hardening D4) — this checkout's FOLDER-BOUND workspace, resolved
+   * exactly as `jentrix session align` resolves it (git root → binding.json,
+   * never arbitrary cwd ancestry, §11.4). It is what turns `--task JEN-485`
+   * into a lookup instead of a NOT_FOUND: task ids are global, human keys are
+   * workspace-scoped, and the folder is the only trusted answer to "which
+   * workspace".
+   *
+   * Optional for the same reason `sessionId` is — this module owns no process
+   * edges. Absent (or null) means a key cannot be resolved here, and the
+   * caller gets the existing `TASK_WORKSPACE_REQUIRED` sentence naming the
+   * id form, which is the honest answer outside a bound checkout.
+   */
+  folderWorkspaceId?(): Promise<string | null>;
   /**
    * JEN-467 — WHERE `configFile()` looked, so `whoami` can name the file
    * (folder-local `.stacks/config.json` versus the machine-wide home file)
@@ -177,6 +193,53 @@ export function workspaceIdShapeError(value: string): string | null {
     "`jentrix align --workspace <id-or-slug>` — align is the command that " +
     "accepts a slug."
   );
+}
+
+/**
+ * D4 — turn a human task key in `taskId` into something the server can answer.
+ *
+ * `get_task` accepts `{ workspaceId, number }` as an alternative identity, so
+ * for that one tool the key costs NOTHING: `taskLookupArgs` produces the pair
+ * and it goes straight out. Every other tool takes an id only, so the key is
+ * resolved with one `get_task` first — the same `resolveTask` that
+ * `jentrix session align` has always used, never a second resolver.
+ *
+ * Mutates `args` in place and returns nothing: the caller already owns the
+ * object it is about to send, and a copy here would be one more thing to keep
+ * in sync with the merge order above it.
+ */
+async function resolveTaskKeyInPlace(
+  toolName: string,
+  args: Record<string, unknown>,
+  caller: ToolCaller,
+  deps: ToolCommandDeps,
+): Promise<void> {
+  const wanted = args.taskId;
+  if (typeof wanted !== "string" || !isTaskKey(wanted)) return;
+  const workspaceId =
+    (await deps.folderWorkspaceId?.().catch(() => null)) ?? undefined;
+  // Throws TASK_WORKSPACE_REQUIRED (naming the id form) when the folder is
+  // unbound — the existing message, unchanged.
+  const lookup = taskLookupArgs(wanted, workspaceId);
+  if (typeof lookup.taskId === "string") return; // not a key after all
+  // `get_task` is the one tool whose schema takes `{ workspaceId, number }`
+  // as an alternative identity, so there the key costs no round trip at all.
+  if (
+    toolName === "get_task" &&
+    typeof args.workspaceId !== "string" &&
+    typeof args.number !== "number"
+  ) {
+    delete args.taskId;
+    args.workspaceId = lookup.workspaceId;
+    args.number = lookup.number;
+    return;
+  }
+  const task = await resolveTask(
+    caller as unknown as Parameters<typeof resolveTask>[0],
+    wanted,
+    workspaceId,
+  );
+  args.taskId = task.id;
 }
 
 export async function runToolCommand(
@@ -308,6 +371,27 @@ export async function runToolCommand(
       deps.writeErr(redact(`error: cannot reach ${config.url}: ${detail}`));
     }
     return EXIT_CODES.TRANSPORT;
+  }
+
+  // ---- `--task JEN-42` → a task id (D4) ---------------------------------
+  // The ONE seam every tool call routes through: the generated tree, the
+  // aliases, and `jentrix tool <name> --args` alike. Before this, `--task`
+  // reached the server as a bare `taskId` and a human key answered NOT_FOUND
+  // — both JEN-484 runs lost a turn to it (§4 G5), and `session align` had
+  // been resolving keys correctly all along with the very same function.
+  try {
+    await resolveTaskKeyInPlace(name, parsed.value, handle.caller, deps);
+  } catch (e) {
+    await handle.close().catch(() => undefined);
+    if (e instanceof UsageError) {
+      deps.writeErr(`error: ${e.message}`);
+      return e.exitCode;
+    }
+    if (e instanceof ToolCallError) {
+      deps.writeErr(redact(`error: ${e.message}`));
+      return e.exitCode;
+    }
+    throw e;
   }
 
   // ---- the call ----------------------------------------------------------
