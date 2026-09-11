@@ -54,13 +54,18 @@ wizard; a Project is an optional task label and is never part of it).
    ```
 
    One call returns the description, the links BOTH ways with their titles,
-   the subtasks, the latest artifact of each type with its id, and the last
-   five comments. Read it before you touch any code: a linked card is usually
-   where the prior round's reasoning lives, and its artifacts are the context
-   you would otherwise reconstruct from scratch. If it prints
-   `no links · no artifacts · no comments`, the card has nothing to give and
-   you stop looking — that single line is the answer, not an invitation to run
-   `task get`, `task search` and `comment list` to confirm it.
+   the subtasks, the latest artifact of each type with its id, the last five
+   comments, and **Related evidence** — what OTHER work in this workspace
+   already said about this card (learnings, decisions, findings, reports
+   ranked by similarity; the align output printed the same block). Read it
+   before you touch any code: a linked card is usually where the prior
+   round's reasoning lives, its artifacts are the context you would otherwise
+   reconstruct from scratch, and a related learning is a mistake you do not
+   have to make twice — `jentrix artifact get --artifact-id <id>` reads one in
+   full. If it prints `no links · no artifacts · no comments · no related
+   evidence`, the card has nothing to give and you stop looking — that single
+   line is the answer, not an invitation to run `task get`, `task search` and
+   `comment list` to confirm it.
 
 Notes for you (the assistant):
 

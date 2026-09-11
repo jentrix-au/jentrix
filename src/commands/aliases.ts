@@ -54,6 +54,20 @@ export const ALIASES: Record<string, string> = {
   add_task_link: "link add",
   list_task_links: "link list",
   remove_task_link: "link remove",
+  // Semantic recall (contract 1.4.0, cli 0.10.0): the two vector reads sit
+  // beside their keyword siblings — `task search` / `task find-similar`,
+  // `artifact search` / `artifact find-related` — instead of auto-mounting
+  // under groups named after their middle word ("similar", "related").
+  find_similar_tasks: "task find-similar",
+  find_related_artifacts: "artifact find-related",
+  // Linear integration (contract 1.3.0, adopted here with 1.4.0): one `linear`
+  // group. Without these, `push_board_to_linear` auto-mounts as `push-2` —
+  // the reserved top-level `push` collides and the builder suffixes it with
+  // a warning the build test refuses.
+  list_linear_teams: "linear list-teams",
+  import_linear_team: "linear import-team",
+  sync_linear_board: "linear sync-board",
+  push_board_to_linear: "linear push-board",
 };
 
 /**

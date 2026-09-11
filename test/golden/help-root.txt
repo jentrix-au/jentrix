@@ -6,7 +6,7 @@ Options:
 Commands:
   activity        list
   agent           align-session, attach-session, create-session, get-session, list-sessions
-  artifact        attach, get, list, search
+  artifact        attach, find-related, get, list, search
   attachment      create, list
   board           archive, create, list, rename, snapshot, unarchive
   bug             update-report
@@ -17,6 +17,7 @@ Commands:
   invitation      list
   invite          member
   label           list, manage
+  linear          import-team, list-teams, push-board, sync-board
   link            add, list, remove
   member          list, remove, set-role
   project         add-link, create, get, list, remove-link, resolve-for-repo, … (7 commands)
@@ -24,7 +25,7 @@ Commands:
   review          get-dossier, list-queue
   revoke          invitation
   subtask         create, delete, toggle
-  task            archive, create, get, list, move, search, … (10 commands)
+  task            archive, create, find-similar, get, list, move, … (11 commands)
   token           get-context
   workspace       create, list, update
   help [command]  display help for command
