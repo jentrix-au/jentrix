@@ -22,6 +22,12 @@ import {
   type SessionToolCaller,
 } from "../tool-client";
 import { type SessionCommandDeps } from "../session/deps";
+import {
+  relatedArtifactsOf,
+  relatedNoticeOf,
+  renderRelatedEvidence,
+  type RelatedArtifactHit,
+} from "../session/related-evidence";
 import { inspectCheckout, reportError, withCaller } from "../session/runtime";
 
 /** How many of a card's most recent comments the bundle carries (D3). */
@@ -32,6 +38,15 @@ interface ContextBundle {
   /** The latest artifact of each type on the card, newest first. */
   artifacts: Record<string, unknown>[];
   comments: Record<string, unknown>[];
+  /**
+   * Semantic recall (cli 0.10.0, AC5.3): what OTHER work already said about
+   * this card — `find_related_artifacts` by task (its own and linked
+   * artifacts excluded, at most ten, similarity ranked). Null when the read
+   * did not happen (named in `unavailable`), so "none" is never claimed for
+   * a read that failed.
+   */
+  related: RelatedArtifactHit[] | null;
+  relatedNotice?: string;
   /**
    * A side read that FAILED, named. A bundle that quietly drops a section it
    * could not fetch says "no artifacts" about a card that has twelve — which
@@ -113,15 +128,28 @@ async function loadBundle(
   // Two more reads, in parallel: this command exists to cost ONE round of
   // waiting, not three. `list_artifacts` is workspace-scoped and task-filtered
   // — the task's OWN workspace, read back from the card, never a config guess.
-  const [artifacts, comments] = await Promise.all([
+  const [artifacts, comments, related] = await Promise.all([
     side("list_artifacts", { workspaceId: str(task.workspaceId), taskId }),
     side("list_comments", { taskId }),
+    // Semantic recall: the same round of waiting, one more read — the
+    // evidence the card's own record does not carry.
+    side("find_related_artifacts", { taskId }),
   ]);
   return {
     task,
     artifacts: latestPerType(rows(artifacts, "artifacts")),
     // The server returns comments oldest-first, so the LAST five are the tail.
     comments: rows(comments, "comments").slice(-RECENT_COMMENTS),
+    related:
+      related === null
+        ? null
+        : relatedArtifactsOf({
+            relatedArtifacts: (related as Record<string, unknown>).artifacts,
+          }),
+    ...(related !== null &&
+    typeof (related as Record<string, unknown>).notice === "string"
+      ? { relatedNotice: (related as Record<string, unknown>).notice as string }
+      : {}),
     unavailable,
   };
 }
@@ -175,17 +203,25 @@ export function renderContext(bundle: ContextBundle): string {
 
   const links = linkLines(task);
   const subtasks = rows(task, "subtasks");
-  const { artifacts, comments, unavailable } = bundle;
+  const { artifacts, comments, related, unavailable } = bundle;
 
   // D3/AC2.3 — a card with nothing to discover says so in ONE line, so the
   // agent stops looking instead of spending three more calls proving it.
+  // Semantic recall AC5.3: a fresh card also has no related evidence, and the
+  // line says so — the read happened and found nothing.
   if (
     links.length === 0 &&
     artifacts.length === 0 &&
     comments.length === 0 &&
+    (related === null || related.length === 0) &&
     unavailable.length === 0
   ) {
-    lines.push("", "no links · no artifacts · no comments");
+    lines.push(
+      "",
+      related === null
+        ? "no links · no artifacts · no comments"
+        : "no links · no artifacts · no comments · no related evidence",
+    );
     return lines.join("\n");
   }
 
@@ -206,6 +242,10 @@ export function renderContext(bundle: ContextBundle): string {
       );
     }
   }
+  // Semantic recall: after the card's OWN artifacts, what other work said —
+  // the same block `session align` prints, rendered by the same function.
+  const evidence = renderRelatedEvidence(related, bundle.relatedNotice);
+  if (evidence.length) lines.push("", ...evidence);
   if (comments.length) {
     lines.push("", `comments (last ${comments.length}):`);
     for (const comment of comments) {

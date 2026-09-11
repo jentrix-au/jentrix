@@ -1,6 +1,6 @@
 Usage: jentrix task [options] [command]
 
-archive, create, get, list, move, search, … (10 commands)
+archive, create, find-similar, get, list, move, … (11 commands)
 
 Options:
   -h, --help               display help for command
@@ -9,6 +9,8 @@ Commands:
   archive [options]        Archive a task (soft delete — it disappears from the board but is
                            recoverable).
   create [options]         Create a new task in a column.
+  find-similar [options]   Find tasks SEMANTICALLY similar to an existing task (pass taskId) or to
+                           free te…
   get [options]            Fetch full details of a task including description, labels, assignees,
                            subtasks…
   list [options]           List tasks in a board or column with board/column names, total count, and

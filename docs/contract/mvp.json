@@ -1,7 +1,7 @@
 {
   "_generated": "pnpm gen:contract — do not edit",
-  "apiRelease": "1.0.0",
-  "generatedForToolCount": 64,
+  "apiRelease": "1.4.0",
+  "generatedForToolCount": 73,
   "surface": "mvp",
   "tools": [
     {
@@ -284,6 +284,14 @@
       "description": "Bind a TRUSTED current provider session/thread id (from provider lifecycle hooks or app-server context — never model-authored text) to a Jentrix session. With sessionId: late-binds a CLI-started session's provider thread (CAS). Without: attach-creates an ACTIVE session — v2 shape scopes by workspaceId (no Project), legacy shape by projectId for the compatibility window; repeating converges on the existing session by operator + workspace + repo (row creation runs the plan cap; convergence does not). A competing active binding fails SESSION_ALREADY_BOUND. Requires idempotencyKey.",
       "inputSchema": {
         "properties": {
+          "capture": {
+            "description": "TRACE capture mode to start this session's host under. OMIT to let the server resolve it: this session's previous value, then the operator's account default (Account → Capture), then the built-in off.",
+            "enum": [
+              "off",
+              "on"
+            ],
+            "type": "string"
+          },
           "connection": {
             "oneOf": [
               {
@@ -366,6 +374,14 @@
           "sessionId": {
             "description": "Existing STARTING/ACTIVE session to bind the provider thread to (CLI-start late binding). Omit to attach-create in one step.",
             "minLength": 1,
+            "type": "string"
+          },
+          "skeleton": {
+            "description": "Activity-skeleton mode to start this session's host under, independent of capture. OMIT to let the server resolve it: previous value, then account default, then the built-in on.",
+            "enum": [
+              "on",
+              "off"
+            ],
             "type": "string"
           },
           "startBranch": {
@@ -935,6 +951,9 @@
                 "type": "null"
               }
             ]
+          },
+          "captureOff": {
+            "type": "boolean"
           },
           "commitCount": {
             "anyOf": [
@@ -1931,6 +1950,118 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity (cosine in [0,1]; ≥0.78 reads as related evidence), a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured.",
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Max artifacts to return (default 10).",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Free text to match semantically (used with workspaceId).",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "description": "Find artifacts related to this task (uses its stored embedding; the task's own and linked artifacts are excluded). Provide taskId OR workspaceId + query.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "types": {
+            "description": "Restrict to these artifact kinds (e.g. LEARNING, DECISION_MEMO, FINDINGS). TRACE, LOG, DIFF and PATCH are never embedded.",
+            "items": {
+              "enum": [
+                "PR",
+                "BRANCH",
+                "COMMIT",
+                "PATCH",
+                "DIFF",
+                "SCREENSHOT",
+                "RECORDING",
+                "LOG",
+                "TRACE",
+                "CSV",
+                "PDF",
+                "DOC",
+                "MOCKUP",
+                "EVAL_REPORT",
+                "POLICY_REPORT",
+                "RUN_SUMMARY",
+                "DECISION_MEMO",
+                "SOURCE_DIGEST",
+                "MEMORY_NOMINATION",
+                "PLAN",
+                "FINDINGS",
+                "REPORT",
+                "DELIVERABLE",
+                "LEARNING",
+                "PROMPT",
+                "GOAL",
+                "PRD",
+                "GAP",
+                "ISSUE"
+              ],
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array"
+          },
+          "workspaceId": {
+            "description": "Workspace to search when using a free-text query.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "find_related_artifacts",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Find tasks SEMANTICALLY similar to an existing task (pass taskId) or to free text (pass workspaceId + query) via vector embeddings — catches duplicates and related work that keyword search misses. similarity is cosine in [0,1]; ≥0.8 is a strong duplicate candidate (link with add_task_link kind DUPLICATES). Embeddings refresh every ~5 minutes, so very recent edits may not match yet; falls back to an empty result with a notice when semantic search is not configured.",
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "description": "Max results (default 10, max 25).",
+            "maximum": 25,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Free text to match semantically (used with workspaceId).",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "description": "Find tasks similar to this task (uses its stored embedding). Provide taskId OR workspaceId + query.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Workspace to search when using a free-text query.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "find_similar_tasks",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Fetch one connected session: lifecycle status, capture integrity (orthogonal to status), repository start/end state, linked summary/transcript artifacts, the stable usage object (provider-reported tokens or null — never estimated), and the append-only task-alignment interval history (alignments[], ordinal-ascending; the session's taskId mirrors the open interval).",
       "inputSchema": {
         "properties": {
@@ -2022,6 +2153,75 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "Read the same authorized review dossier shown in the UI: submitted candidate, criteria, ownership, claimed checks, evidence and scoped history. Compact JSON is at most 32 KiB. Follow each collection's nextOffset independently (20 evidence, 10 history, 10 comments maximum). No bodies or signed URLs; open stable authorized artifact routes separately.",
+      "inputSchema": {
+        "properties": {
+          "commentsOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "evidenceOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyChecksOffset": {
+            "default": 0,
+            "maximum": 24,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyDetailsOffset": {
+            "default": 0,
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyEvidenceOffset": {
+            "default": 0,
+            "maximum": 60,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "historyOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "membersOffset": {
+            "default": 0,
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receiptId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "get_review_dossier",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "Fetch full details of a task including description, labels, assignees, subtasks, links, and recent activity. Accepts taskId, or workspaceId + number (the numeric part of a task key like STK-42). Pass response_format: 'concise' for scalars + counts only.",
       "inputSchema": {
         "properties": {
@@ -2067,6 +2267,48 @@
       },
       "name": "get_token_context",
       "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Import a Linear team as a board: its workflow states become columns, its issues become tasks (with labels, assignees by e-mail, comments and BLOCKS links), and every board, column and task is mapped. Re-importing the same team creates nothing and reports the counts.",
+      "inputSchema": {
+        "properties": {
+          "boardName": {
+            "description": "Board name (defaults to the Linear team's name).",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "teamId": {
+            "description": "Linear team id to import. Discover with list_linear_teams.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "Workspace to import into. Must have Linear connected.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "teamId"
+        ],
+        "type": "object"
+      },
+      "name": "import_linear_team",
+      "toolClass": "write"
     },
     {
       "annotations": {
@@ -2347,7 +2589,10 @@
               "AGENT_SESSION_ALIGNED",
               "SESSION_BUDGET_EXCEEDED",
               "REVIEW_ACCEPTED",
-              "REVIEW_RETURNED"
+              "REVIEW_RETURNED",
+              "REVIEW_REQUEST_UPDATED",
+              "REVIEW_REQUEST_SUBMITTED",
+              "REVIEW_LEGACY_CLOSED"
             ],
             "type": "string"
           }
@@ -2635,6 +2880,28 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
+      "description": "List the Linear teams the workspace's connected API key can see. Use the returned team id with import_linear_team or push_board_to_linear. Requires workspace admin access and a connected Linear key (Workspace settings → Integrations → Linear).",
+      "inputSchema": {
+        "properties": {
+          "workspaceId": {
+            "description": "Workspace whose connected Linear account to use.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_linear_teams",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
       "description": "List members of a workspace. Use the userId field when assigning tasks.",
       "inputSchema": {
         "properties": {
@@ -2721,6 +2988,111 @@
         "type": "object"
       },
       "name": "list_projects",
+      "toolClass": "read"
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List column-derived pending review requests. Filters apply to the whole workspace, pages contain at most 50 tasks, and totals distinguish matching from all pending. Null request time means unknown, never inferred age. Agents recommend only.",
+      "inputSchema": {
+        "properties": {
+          "board": {
+            "items": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "kind": {
+            "items": {
+              "enum": [
+                "code",
+                "outcome",
+                "research",
+                "legacy",
+                "untriaged"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": "array"
+          },
+          "page": {
+            "default": 1,
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "priority": {
+            "items": {
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH",
+                "URGENT"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
+          "q": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "requestTime": {
+            "items": {
+              "const": "unknown",
+              "type": "string"
+            },
+            "maxItems": 1,
+            "type": "array"
+          },
+          "response": {
+            "items": {
+              "enum": [
+                "overdue",
+                "notset"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "type": "array"
+          },
+          "reviewer": {
+            "items": {
+              "maxLength": 160,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "sort": {
+            "default": "priority",
+            "enum": [
+              "priority",
+              "updated",
+              "requested"
+            ],
+            "type": "string"
+          },
+          "workspaceId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "name": "list_review_queue",
       "toolClass": "read"
     },
     {
@@ -2988,6 +3360,42 @@
         "type": "object"
       },
       "name": "move_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Push a board's tasks to a Linear team: tasks with no Linear counterpart are created as issues, mapped ones are updated. The task's column name is matched to a Linear workflow state (falling back to the team's default state) and labels are matched by name — labels that do not exist in Linear are skipped rather than created.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board whose tasks to push to Linear.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "teamId": {
+            "description": "Linear team to create/update issues in. Discover with list_linear_teams.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "teamId"
+        ],
+        "type": "object"
+      },
+      "name": "push_board_to_linear",
       "toolClass": "write"
     },
     {
@@ -3432,6 +3840,36 @@
         "type": "object"
       },
       "name": "set_task_labels",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Pull everything that changed in Linear since this board's last sync: new issues become tasks, changed issues update in place (title, description, priority, due date, column, labels, assignee) and issues archived or trashed in Linear archive here. Last-writer-wins — a local edit since the last sync is overwritten. Running it twice in a row changes nothing the second time.",
+      "inputSchema": {
+        "properties": {
+          "boardId": {
+            "description": "Board previously imported from Linear. Only issues updated since the last sync are fetched.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "description": "Optional idempotency key: retrying with the same key and arguments within 24h returns the original result instead of creating duplicates. Reusing a key with different arguments fails with CONFLICT.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId"
+        ],
+        "type": "object"
+      },
+      "name": "sync_linear_board",
       "toolClass": "write"
     },
     {
@@ -3900,6 +4338,504 @@
         "type": "object"
       },
       "name": "update_task",
+      "toolClass": "write"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create or update review request metadata. Existing rows require expectedUpdatedAt; creation supports idempotencyKey. Explicit submit validates ownership, criteria, candidate and response target. No human verdict, legacy closure or code downgrade is available to agents.",
+      "inputSchema": {
+        "properties": {
+          "authorId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backupReviewerId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "context": {
+            "additionalProperties": false,
+            "properties": {
+              "candidate": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "base": {
+                            "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                            "type": "string"
+                          },
+                          "head": {
+                            "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+                            "type": "string"
+                          },
+                          "repository": {
+                            "format": "uri",
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "git",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "repository",
+                          "base",
+                          "head"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "artifactId": {
+                            "maxLength": 160,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "sha256": {
+                            "pattern": "^[a-f0-9]{64}$",
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "patch",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "artifactId",
+                          "sha256"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "artifactIds": {
+                            "items": {
+                              "maxLength": 160,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxItems": 60,
+                            "type": "array"
+                          },
+                          "limitations": {
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "reference": {
+                            "format": "uri",
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "type": {
+                            "const": "deliverable",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "artifactIds",
+                          "limitations"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "checks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "candidate": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "command": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "evidenceIds": {
+                      "items": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 10,
+                      "type": "array"
+                    },
+                    "finishedAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                      "type": "string"
+                    },
+                    "id": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "source": {
+                      "enum": [
+                        "cli_attested",
+                        "human_reported",
+                        "author_reported"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "pass",
+                        "fail",
+                        "unknown"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "command",
+                    "evidenceIds",
+                    "candidate",
+                    "finishedAt",
+                    "source",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "criteria": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "checkIds": {
+                      "items": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 24,
+                      "type": "array"
+                    },
+                    "evidenceIds": {
+                      "items": {
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 60,
+                      "type": "array"
+                    },
+                    "id": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "text": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text",
+                    "evidenceIds",
+                    "checkIds"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "decisionRequested": {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "artifactId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^[a-f0-9]{64}$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 60,
+                "type": "array"
+              },
+              "findings": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "criterionId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "id": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "impact": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "location": {
+                      "maxLength": 300,
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "recordType": {
+                      "enum": [
+                        "artifact",
+                        "comment"
+                      ],
+                      "type": "string"
+                    },
+                    "remedy": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "severity": {
+                      "enum": [
+                        "blocker",
+                        "suggestion"
+                      ],
+                      "type": "string"
+                    },
+                    "verification": {
+                      "maxLength": 600,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "severity",
+                    "criterionId",
+                    "recordType",
+                    "recordId",
+                    "location",
+                    "impact",
+                    "remedy",
+                    "verification"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "gaps": {
+                "items": {
+                  "maxLength": 600,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 12,
+                "type": "array"
+              },
+              "responses": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "findingId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "maxLength": 160,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "recordType": {
+                      "enum": [
+                        "artifact",
+                        "comment"
+                      ],
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "addressed",
+                        "disputed",
+                        "pending"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "findingId",
+                    "recordType",
+                    "recordId",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 24,
+                "type": "array"
+              },
+              "schemaVersion": {
+                "const": 1,
+                "type": "number"
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "criteria",
+              "candidate",
+              "evidence",
+              "checks",
+              "gaps",
+              "decisionRequested",
+              "findings",
+              "responses"
+            ],
+            "type": "object"
+          },
+          "decisionOwnerId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "downgradeReason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expectedUpdatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotencyKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "code",
+                  "outcome",
+                  "research",
+                  "legacy"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "responseDueAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewerId": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submit": {
+            "default": false,
+            "type": "boolean"
+          },
+          "taskId": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId"
+        ],
+        "type": "object"
+      },
+      "name": "update_task_review",
       "toolClass": "write"
     },
     {

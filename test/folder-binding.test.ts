@@ -32,6 +32,7 @@ import {
   runFolderClear,
   runFolderStatus,
 } from "../src/commands/folder";
+import { EXIT_CODES } from "../src/errors";
 import { runSessionAlign } from "../src/session/alignment";
 import { runSessionStatus } from "../src/session/status";
 import { writeAlignmentMarker } from "../src/session/state";
@@ -245,7 +246,11 @@ test("folder status reports drift independently; clear removes ONLY the binding"
 
 // --- session align (level 2, §15.3) — the D6 widen end to end ---------------
 
-function alignWorld(dir: string, spool: string) {
+function alignWorld(
+  dir: string,
+  spool: string,
+  extraAlignResult: Record<string, unknown> = {},
+) {
   const aligns: Array<Record<string, unknown>> = [];
   const caller = fakeCaller({
     attach_agent_session: (args) => {
@@ -284,11 +289,127 @@ function alignWorld(dir: string, spool: string) {
         },
         realigned: false,
         captureSources: { capture: "(built-in)", skeleton: "(built-in)" },
+        ...extraAlignResult,
       };
     },
   });
   return { caller, aligns };
 }
+
+// Semantic recall (cli 0.10.0, PRD D13 / AC5.2): the `Related evidence:` block
+// rides the align disclosure when the server sends `relatedArtifacts`, and is
+// ABSENT — not "none" — when an older server does not.
+const RELATED_HIT = {
+  id: "art_7",
+  title: "Learning: the reaper releases the lease before the retry",
+  type: "LEARNING",
+  createdAt: "2026-09-10T10:00:00.000Z",
+  taskId: "task_3",
+  taskKey: "ACM-11",
+  sessionId: "ses_0",
+  similarity: 0.8412,
+  snippet: "The reaper released the lease before the retry.",
+  truncated: false,
+};
+
+function liveHost(spool: string) {
+  mkdirSync(join(spool, "ses_al"), { recursive: true });
+  writeFileSync(
+    join(spool, "ses_al", "host.json"),
+    JSON.stringify({
+      pid: 4242,
+      startedAt: "2026-08-29T00:59:00.000Z",
+      provider: "claude",
+      mode: "watch",
+    }),
+  );
+}
+
+/** The same align invocation the flush tests use: a bound provider session. */
+const ALIGN_FLAGS = {
+  task: "ACM-42",
+  provider: "claude",
+  providerSession: "cc-align-1",
+  transcriptPath: "/t/align.jsonl",
+} as const;
+
+/** Deps whose fake host acks the flush request, so the align never waits. */
+function ackingDeps(caller: SessionToolCaller, dir: string, spool: string) {
+  const flushPath = join(spool, "ses_al", "flush-request.json");
+  return deps(caller, dir, {
+    spoolRoot: spool,
+    isPidAlive: () => true,
+    sleep: async () => {
+      if (existsSync(flushPath)) {
+        const { unlinkSync } = await import("node:fs");
+        unlinkSync(flushPath);
+      }
+    },
+  });
+}
+
+test("session align prints the Related evidence block the server returned, and passes it through in --json (AC5.2)", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const spool = mkdtempSync(join(tmpdir(), "jspool-"));
+  liveHost(spool);
+  const { caller } = alignWorld(dir, spool, {
+    relatedArtifacts: [RELATED_HIT],
+  });
+  const d = ackingDeps(caller, dir, spool);
+  assert.equal(await runSessionAlign(ALIGN_FLAGS, d), EXIT_CODES.OK);
+  const out = d.out.join("\n");
+  assert.match(out, /Aligned session ses_al → ACM-42 Fix it/);
+  assert.match(out, /Related evidence \(1\):/);
+  assert.match(
+    out,
+    /LEARNING {7}art_7 {2}Learning: the reaper releases the lease before the retry {2}· {2}84% {2}· {2}on ACM-11/,
+  );
+  assert.match(out, /^ {4}The reaper released the lease before the retry\.$/m);
+
+  const jd = ackingDeps(caller, dir, spool);
+  assert.equal(
+    await runSessionAlign({ ...ALIGN_FLAGS, json: true }, jd),
+    EXIT_CODES.OK,
+  );
+  const parsed = JSON.parse(jd.out.at(-1)!) as Record<string, unknown>;
+  assert.deepEqual(parsed.relatedArtifacts, [RELATED_HIT]);
+  assert.equal("relatedArtifactsNotice" in parsed, false);
+});
+
+test("session align: an empty block prints the server's reason; an older server's absent field prints nothing (D13)", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const spool = mkdtempSync(join(tmpdir(), "jspool-"));
+  liveHost(spool);
+  const empty = alignWorld(dir, spool, {
+    relatedArtifacts: [],
+    relatedArtifactsNotice: "This task has no embedding yet — retry shortly.",
+  });
+  const d = ackingDeps(empty.caller, dir, spool);
+  assert.equal(await runSessionAlign(ALIGN_FLAGS, d), EXIT_CODES.OK);
+  assert.match(
+    d.out.join("\n"),
+    /Related evidence: none — This task has no embedding yet — retry shortly\./,
+  );
+  const jd = ackingDeps(empty.caller, dir, spool);
+  await runSessionAlign({ ...ALIGN_FLAGS, json: true }, jd);
+  const parsed = JSON.parse(jd.out.at(-1)!) as Record<string, unknown>;
+  assert.deepEqual(parsed.relatedArtifacts, []);
+  assert.equal(
+    parsed.relatedArtifactsNotice,
+    "This task has no embedding yet — retry shortly.",
+  );
+
+  const older = alignWorld(dir, spool);
+  const od = ackingDeps(older.caller, dir, spool);
+  assert.equal(await runSessionAlign(ALIGN_FLAGS, od), EXIT_CODES.OK);
+  assert.doesNotMatch(od.out.join("\n"), /Related evidence/);
+  const ojd = ackingDeps(older.caller, dir, spool);
+  await runSessionAlign({ ...ALIGN_FLAGS, json: true }, ojd);
+  const oparsed = JSON.parse(ojd.out.at(-1)!) as Record<string, unknown>;
+  assert.equal("relatedArtifacts" in oparsed, false);
+});
 
 test("session align: the unaligned→first-task boundary FLUSHES (D6 — the wizard never did)", async () => {
   const dir = root();

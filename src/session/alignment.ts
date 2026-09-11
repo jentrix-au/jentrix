@@ -27,6 +27,11 @@ import {
   launchHostDetached,
   warnAttachedWithoutCapture,
 } from "./host-control";
+import {
+  relatedArtifactsOf,
+  relatedNoticeOf,
+  renderRelatedEvidence,
+} from "./related-evidence";
 import { writeAlignmentMarker } from "./state";
 import { UsageError, callStructured } from "../tool-client";
 import { requireFolderBinding } from "../binding";
@@ -324,6 +329,13 @@ export async function runSessionAlign(
         transcriptPath,
       );
 
+      // Semantic recall (PRD D9/D13): related evidence rides the align
+      // result. Passed through VERBATIM in JSON when the server sent it (an
+      // older server sends nothing, and nothing is what the caller sees);
+      // printed as the `Related evidence:` block otherwise — the thing to
+      // read before reading code.
+      const relatedArtifacts = relatedArtifactsOf(aligned);
+      const relatedNotice = relatedNoticeOf(aligned);
       if (flags.json) {
         // §16.4: the composite result — the locally observed boundary beside
         // the server's own snapshot, never folded into it.
@@ -336,6 +348,12 @@ export async function runSessionAlign(
             captureMode,
             captureSources,
             telemetrySource: telemetry,
+            ...(relatedArtifacts !== null
+              ? { relatedArtifacts: aligned.relatedArtifacts }
+              : {}),
+            ...(relatedNotice !== undefined
+              ? { relatedArtifactsNotice: relatedNotice }
+              : {}),
           }),
         );
       } else {
@@ -347,6 +365,11 @@ export async function runSessionAlign(
           } (workspace ${binding.workspaceSlug}).`,
         );
         for (const line of telemetrySourceLines(telemetry)) deps.writeOut(line);
+        for (const line of renderRelatedEvidence(
+          relatedArtifacts,
+          relatedNotice,
+        ))
+          deps.writeOut(line);
       }
       return EXIT_CODES.OK;
     });
