@@ -1948,7 +1948,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity (cosine in [0,1]; ≥0.78 reads as related evidence), a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured.",
+      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity, a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. similarity is cosine in [0,1] and its SCALE depends on the mode: by taskId (document vs document) ≥0.78 reads as related evidence; by query the text is embedded as a QUERY and scores run lower — treat the result as a ranking, read the top hits, and do not apply the by-task number to it. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured.",
       "inputSchema": {
         "properties": {
           "limit": {
@@ -2024,7 +2024,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find tasks SEMANTICALLY similar to an existing task (pass taskId) or to free text (pass workspaceId + query) via vector embeddings — catches duplicates and related work that keyword search misses. similarity is cosine in [0,1]; ≥0.8 is a strong duplicate candidate (link with add_task_link kind DUPLICATES). Embeddings refresh every ~5 minutes, so very recent edits may not match yet; falls back to an empty result with a notice when semantic search is not configured.",
+      "description": "Find tasks SEMANTICALLY similar to an existing task (pass taskId) or to free text (pass workspaceId + query) via vector embeddings — catches duplicates and related work that keyword search misses. similarity is cosine in [0,1] and its SCALE depends on the mode: by taskId (document vs document) ≥0.8 is a strong duplicate candidate (link with add_task_link kind DUPLICATES); by query the text is embedded as a QUERY and scores run lower — treat the result as a ranking, read the top hits, and do not apply the by-task number to it. Embeddings refresh every ~5 minutes, so very recent edits may not match yet; falls back to an empty result with a notice when semantic search is not configured.",
       "inputSchema": {
         "properties": {
           "limit": {
