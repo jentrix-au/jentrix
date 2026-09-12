@@ -23,6 +23,9 @@ import {
 } from "../tool-client";
 import { type SessionCommandDeps } from "../session/deps";
 import {
+  aboveRelatedFloor,
+  RELATED_EVIDENCE_LIMIT,
+  RELATED_EVIDENCE_TYPES,
   relatedArtifactsOf,
   relatedNoticeOf,
   renderRelatedEvidence,
@@ -132,8 +135,15 @@ async function loadBundle(
     side("list_artifacts", { workspaceId: str(task.workspaceId), taskId }),
     side("list_comments", { taskId }),
     // Semantic recall: the same round of waiting, one more read — the
-    // evidence the card's own record does not carry.
-    side("find_related_artifacts", { taskId }),
+    // evidence the card's own record does not carry. The kinds and the limit
+    // are what align asks for (JEN-522); the tool has no floor input, so the
+    // floor is applied below. Both are contract facts, stated once in
+    // ../session/related-evidence.
+    side("find_related_artifacts", {
+      taskId,
+      types: RELATED_EVIDENCE_TYPES,
+      limit: RELATED_EVIDENCE_LIMIT,
+    }),
   ]);
   return {
     task,
@@ -143,9 +153,11 @@ async function loadBundle(
     related:
       related === null
         ? null
-        : relatedArtifactsOf({
-            relatedArtifacts: (related as Record<string, unknown>).artifacts,
-          }),
+        : aboveRelatedFloor(
+            relatedArtifactsOf({
+              relatedArtifacts: (related as Record<string, unknown>).artifacts,
+            }),
+          ),
     ...(related !== null &&
     typeof (related as Record<string, unknown>).notice === "string"
       ? { relatedNotice: (related as Record<string, unknown>).notice as string }

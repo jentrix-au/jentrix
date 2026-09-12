@@ -7,6 +7,10 @@ import test from "node:test";
 import { runTaskContext } from "../src/commands/task-context";
 import { EXIT_CODES } from "../src/errors";
 import type { SessionCommandDeps } from "../src/session/deps";
+import {
+  RELATED_EVIDENCE_LIMIT,
+  RELATED_EVIDENCE_TYPES,
+} from "../src/session/related-evidence";
 import type { SessionToolCaller } from "../src/tool-client";
 
 // Semantic recall (cli 0.10.0, AC5.3): `task context` reads
@@ -99,8 +103,17 @@ test("task context reads find_related_artifacts by task in the same round and pr
     }),
     list_comments: () => ({ comments: [] }),
     find_related_artifacts: (args) => {
-      assert.deepEqual(args, { taskId: "task_42" });
-      return { artifacts: [HIT] };
+      // JEN-522: task context must ask for the SAME set align returns — the
+      // evidence kinds and five rows — not the tool's defaults.
+      assert.deepEqual(args, {
+        taskId: "task_42",
+        types: RELATED_EVIDENCE_TYPES,
+        limit: RELATED_EVIDENCE_LIMIT,
+      });
+      assert.ok(!RELATED_EVIDENCE_TYPES.includes("PROMPT"));
+      assert.ok(!RELATED_EVIDENCE_TYPES.includes("GOAL"));
+      // The tool takes no floor, so a row under it must be dropped here.
+      return { artifacts: [HIT, { ...HIT, id: "art_8", similarity: 0.7 }] };
     },
   });
   const d = deps(caller);
@@ -114,6 +127,9 @@ test("task context reads find_related_artifacts by task in the same round and pr
     /LEARNING {7}art_7 {2}Learning: zip export needs no archiver {2}· {2}84% {2}· {2}on ACM-11/,
   );
   assert.match(out, /^ {4}Building the export zip with node:zlib alone/m);
+  // …and the 0.70 row is not printed: one block, one meaning (JEN-522).
+  assert.ok(!out.includes("art_8"), out);
+  assert.ok(out.includes("Related evidence (1):"), out);
   // One round: the three side reads were issued together after get_task.
   assert.deepEqual(
     caller.calls.map((c) => c.name),
