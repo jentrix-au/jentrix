@@ -11,6 +11,66 @@
  * context. Pure: rows in, printable lines out.
  */
 
+/**
+ * The evidence set, mirrored from the server so `jentrix task context` asks
+ * `find_related_artifacts` the question `align_agent_session` already answers
+ * for itself. Before this the command took the tool's DEFAULTS — every
+ * embeddable kind, no floor, ten rows — and rendered them with the same
+ * renderer, so align printed five rows above 78 % while context printed ten
+ * including GOAL and rows at 68 % (JEN-522).
+ *
+ * These three mirror `RELATED_EVIDENCE_TYPES`, `RELATED_FLOOR` and
+ * `RELATED_EVIDENCE_LIMIT` in the server's `src/server/queries/similar.ts`,
+ * read from contract 1.4.1 — where `find_related_artifacts` states the floor in
+ * its own description, so the number can be checked against the contract
+ * without reading server code. They are the ONE place the client states them;
+ * if the server moves them, this file is what a CLI release updates.
+ */
+export const RELATED_EVIDENCE_TYPES = [
+  "PR",
+  "BRANCH",
+  "COMMIT",
+  "SCREENSHOT",
+  "RECORDING",
+  "CSV",
+  "PDF",
+  "DOC",
+  "MOCKUP",
+  "EVAL_REPORT",
+  "POLICY_REPORT",
+  "RUN_SUMMARY",
+  "DECISION_MEMO",
+  "SOURCE_DIGEST",
+  "MEMORY_NOMINATION",
+  "PLAN",
+  "FINDINGS",
+  "REPORT",
+  "DELIVERABLE",
+  "LEARNING",
+  "PRD",
+  "GAP",
+  "ISSUE",
+];
+
+/** At most this many rows ride an align result or the context block. */
+export const RELATED_EVIDENCE_LIMIT = 5;
+
+/**
+ * Cosine floor for a BY-TASK read. A free-text query is embedded as a query
+ * and scores a lower scale entirely (the tool description says so) — this
+ * number is not for that mode.
+ */
+export const RELATED_FLOOR = 0.78;
+
+/** The tool takes kinds and a limit but no floor, so the floor is applied here. */
+export function aboveRelatedFloor(
+  hits: RelatedArtifactHit[] | null,
+): RelatedArtifactHit[] | null {
+  return hits === null
+    ? null
+    : hits.filter((hit) => hit.similarity >= RELATED_FLOOR);
+}
+
 export interface RelatedArtifactHit {
   id: string;
   title: string;

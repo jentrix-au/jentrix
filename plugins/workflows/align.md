@@ -41,8 +41,9 @@ wizard; a Project is an optional task label and is never part of it).
    One call returns the description, the links BOTH ways with their titles,
    the subtasks, the latest artifact of each type with its id, the last five
    comments, and **Related evidence** — what OTHER work in this workspace
-   already said about this card (learnings, decisions, findings, reports
-   ranked by similarity; the align output printed the same block). Read it
+   already said about this card (learnings, decisions, findings, reports;
+   at most five, each at 78 % similarity or more — byte for byte the block
+   the align output printed). Read it
    before you touch any code: a linked card is usually where the prior
    round's reasoning lives, its artifacts are the context you would otherwise
    reconstruct from scratch, and a related learning is a mistake you do not
