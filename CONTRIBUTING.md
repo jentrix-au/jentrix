@@ -37,6 +37,8 @@ pnpm test                      # unit tests (node:test)
 CLI_PACK_SMOKE=1 pnpm test     # plus the cold install of the packed tarballs
 pnpm validate:examples         # the reference extensions under examples/
 pnpm gen:workflows             # after editing shared workflow sources
+pnpm sync:plugin-meta          # then re-stamp the behaviour revision + resource digests
+pnpm check:plugin-sync         # the all-host synchronization guard (docs/plugin-sync.md)
 pnpm build                     # dist/ — the bins and the @jentrix/cli/core entry
 ```
 
@@ -75,6 +77,19 @@ edited by hand; the help goldens under `test/golden/` derive from them.
 [docs/compatibility.md](./docs/compatibility.md) explains the surface, the
 API release and the digest. A pull request that changes these files is a
 contract adoption, and its description says which digest it adopts.
+
+## Every change accounts for every official plugin
+
+The official plugins share one behaviour contract. A bug fix, issue
+resolution or feature is complete only when Claude Code, Codex and every
+planned host (OpenCode, Pi) has an explicit, tested disposition — which is
+why `pnpm check:plugin-sync` runs in the required `ci` job and every
+plugin-relevant change carries an impact record in `plugins/changes/`
+(`shared-fix-applied`, `adapter-fix-applied`, `verified-unaffected` with
+evidence, `not-applicable` with reviewed applicability, or `planned`).
+Extend `test/plugin-sync-conformance.test.ts` when a behaviour changes, run
+`pnpm sync:plugin-meta` after `pnpm gen:workflows`, and read
+[docs/plugin-sync.md](./docs/plugin-sync.md) before your first record.
 
 ## Pull requests
 

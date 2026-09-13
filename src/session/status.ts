@@ -15,6 +15,7 @@ import { inspectRepository } from "../repo";
 import { type SessionToolCaller, callStructured as call } from "../tool-client";
 import { withCaller, isRecord, reportError } from "./runtime";
 import { hasLocalCaptureFootprint, localCaptureLines } from "./host-control";
+import { readCheckpointRequest } from "./checkpoint";
 
 /**
  * JEN-296: THIS provider session's aligned Jentrix session for the checkout —
@@ -229,6 +230,9 @@ export async function runSessionStatus(
               ...local,
               telemetry.line,
               ...telemetrySourceLines(source),
+              // R02: a pending semantic-checkpoint request is repeated here
+              // until a `--checkpoint` push answers it.
+              ...checkpointRequestLines(readCheckpointRequest(deps.spoolRoot, sessionId)),
               `Summary artifact: ${session.summaryArtifactId ? String(session.summaryArtifactId) : "—"}`,
             ].join("\n"),
       );
@@ -241,6 +245,19 @@ export async function runSessionStatus(
   } catch (error) {
     return reportError(error, deps);
   }
+}
+
+/** R02 — the pending-checkpoint disclosure, or nothing. */
+export function checkpointRequestLines(
+  request: { boundary: string; requestedAt: string; reason: string } | null,
+): string[] {
+  if (!request) return [];
+  return [
+    `Checkpoint requested: ${request.boundary} boundary at ${request.requestedAt} — ${request.reason}.`,
+    "  Write it: `jentrix push report --checkpoint " +
+      request.boundary +
+      " --intent \"<current intent>\" --next \"<next action>\"` (or `--checkpoint none-occurred` when nothing changed). A hook cannot distil; only a model turn can.",
+  ];
 }
 
 /**

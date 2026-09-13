@@ -1,0 +1,99 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-12-jen-535-audit-corrections",
+  "issue": "JEN-535",
+  "title": "S2a — CLI/session-host + Claude/Codex adapter corrections R01–R08 from the plugin artifact audit (reports/plugin-artifact-audit-2026-09-12)",
+  "behaviors": [
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05",
+    "R06",
+    "R07",
+    "R08",
+    "P04",
+    "P05",
+    "P06",
+    "P07"
+  ],
+  "base": {
+    "revision": "c795940179214c991ce1d4079e4752a097c5a55d"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "plugins/claude/commands/",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/codex/plugins/jentrix/skills/",
+    "plugins/workflows/checkpoint.md",
+    "plugins/workflows/common.md",
+    "plugins/workflows/end.md",
+    "src/commands/artifact-register.ts",
+    "src/commands/artifact.ts",
+    "src/commands/push.ts",
+    "src/commands/session.ts",
+    "src/commands/snapshot.ts",
+    "src/main.ts",
+    "src/session-host/semantic-header.ts",
+    "src/session-host/session-bridge.ts",
+    "src/session-host/session-claude-transcript.ts",
+    "src/session-host/session-codex-hooks.ts",
+    "src/session-host/session-events.ts",
+    "src/session-host/session-host.ts",
+    "src/session-host/session-skeleton.ts",
+    "src/session/alignment.ts",
+    "src/session/checkpoint.ts",
+    "src/session/end.ts",
+    "src/session/status.ts",
+    "test/artifact-register.test.ts",
+    "test/artifact.test.ts",
+    "test/audit-corrections.test.ts",
+    "test/folder-binding.test.ts",
+    "test/pack-smoke.test.ts",
+    "test/semantic-header.test.ts",
+    "test/session-bridge.smoke.test.ts",
+    "test/session-codex-hooks.smoke.test.ts",
+    "test/session-telemetry.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "adapter-fix-applied",
+      "evidence": [
+        "test/plugin-sync-conformance.test.ts",
+        "test/audit-corrections.test.ts",
+        "test/session-bridge.smoke.test.ts",
+        "test/session-capture.smoke.test.ts",
+        "test/plugin-parity.test.ts",
+        "test/artifact-register.test.ts",
+        "test/folder-binding.test.ts",
+        "test/session-telemetry.test.ts"
+      ],
+      "rationale": "R05 typed ids/outcome/attachments in the Claude transcript mapper (image-only prompts now emit user_message with attachments; tool_result carries toolCallId+outcome; assistant_message carries messageId); shared R01–R04/R06–R08 corrections in the bridge/host/CLI; regenerated /jentrix-checkpoint, /jentrix-end and common text."
+    },
+    "codex": {
+      "disposition": "adapter-fix-applied",
+      "evidence": [
+        "test/plugin-sync-conformance.test.ts",
+        "test/audit-corrections.test.ts",
+        "test/session-codex-hooks.smoke.test.ts",
+        "test/session-bridge.smoke.test.ts",
+        "test/plugin-parity.test.ts",
+        "test/artifact-register.test.ts",
+        "test/folder-binding.test.ts",
+        "test/session-telemetry.test.ts"
+      ],
+      "rationale": "R05 typed ids/outcome in the Codex hook mapper (PostToolUse carries toolCallId+turnId+outcome; Stop carries turnId); R06 skeleton reads the shell tool's `cmd` field; shared R01–R04/R07–R08 corrections; regenerated $jentrix-checkpoint, $jentrix-end and common skill text. M1 gate fixes: align refuses dual identity (readCurrentProviderHookContext), explicit-id session end skips detection, attested DIFF on the INTERRUPTED close-by-id path, artifact register --session resolves the session's task."
+    },
+    "opencode": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    },
+    "pi": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    }
+  }
+}

@@ -19,13 +19,14 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { SEMVER, satisfies } from "./semver-range.mjs";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI_VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 
 /** Identities reserved to the official client (TRADEMARKS.md, PRD §4). */
 const RESERVED_NAMES = new Set(["jentrix", "stacks"]);
 const RESERVED_SCOPE = /^@jentrix\//;
-const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 /** Things that must never appear in a hook command. */
 const SECRET_PATTERNS = [
   [/\btm[or]?_[A-Za-z0-9]{8,}/, "a Jentrix token (tm_/tmo_/tmr_)"],
@@ -119,30 +120,6 @@ function checkHooks(file, problems) {
     }
   }
   return count;
-}
-
-/** Does `version` satisfy a range of the forms `>=A <B`, `>=A`, `^A`, `~A`, `A`? */
-function satisfies(version, range) {
-  const parse = (v) => v.split(".").map(Number);
-  const cmp = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
-  const v = parse(version);
-  if (!SEMVER.test(version)) return false;
-  const clauses = range.trim().split(/\s+/);
-  return clauses.every((clause) => {
-    const m = /^(>=|<=|>|<|\^|~|=)?(\d+\.\d+\.\d+)$/.exec(clause);
-    if (!m) return false;
-    const [, op = "=", bound] = m;
-    const b = parse(bound);
-    switch (op) {
-      case ">=": return cmp(v, b) >= 0;
-      case ">": return cmp(v, b) > 0;
-      case "<=": return cmp(v, b) <= 0;
-      case "<": return cmp(v, b) < 0;
-      case "^": return cmp(v, b) >= 0 && (b[0] > 0 ? v[0] === b[0] : b[1] > 0 ? v[0] === 0 && v[1] === b[1] : cmp(v, b) === 0);
-      case "~": return cmp(v, b) >= 0 && v[0] === b[0] && v[1] === b[1];
-      default: return cmp(v, b) === 0;
-    }
-  });
 }
 
 function checkRange(dir, problems) {

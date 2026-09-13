@@ -1,0 +1,44 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-13-jen-538-reclose-keeps-recorded-end",
+  "issue": "JEN-538",
+  "title": "Server-only: a re-completion of an INTERRUPTED session (`session end <id>` with no live host) keeps the completedAt and wall duration the host's close recorded, and the RUN_SUMMARY closes at the same instant — the row no longer stretches over the gap during which nothing ran (C7d: row 330,137 ms vs summary 30,284 ms)",
+  "behaviors": [
+    "P07"
+  ],
+  "base": {
+    "revision": "1166c3e"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "plugins/changes/2026-09-13-jen-538-reclose-keeps-recorded-end.json"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "verified-unaffected",
+      "evidence": [
+        "test/session-telemetry.test.ts",
+        "task-manager-jen529 src/server/agent-sessions/operations.test.ts — 'JEN-538: keeps the END the host recorded' (server suite)"
+      ],
+      "rationale": "Wall duration and completedAt are server-derived; no host sends them (the close request carries usage, tree and evidence fields only — test/session-telemetry.test.ts pins the request keys). Both hosts' close-by-id path is the same complete_agent_session call; no client or plugin file changes."
+    },
+    "codex": {
+      "disposition": "verified-unaffected",
+      "evidence": [
+        "test/session-telemetry.test.ts",
+        "task-manager-jen529 src/server/agent-sessions/operations.test.ts — 'JEN-538: keeps the END the host recorded' (server suite)"
+      ],
+      "rationale": "Same server-only change; the Codex thread-exit INTERRUPTED close followed by `session end <id>` (C6c/C7c pattern) goes through the identical server path."
+    },
+    "opencode": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    },
+    "pi": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    }
+  }
+}

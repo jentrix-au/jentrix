@@ -38,6 +38,10 @@ import { inspectRepository } from "../repo";
 import { readAlignmentMarker } from "../session/state";
 import { runPush, type PushDeps } from "./push";
 import {
+  readCheckpointRequest,
+  writeCheckpointRequest,
+} from "../session/checkpoint";
+import {
   readLiveHostMarker,
   type LocalHostMarker,
 } from "../session/host-control";
@@ -138,6 +142,18 @@ export function resolveSnapshotSession(
   return null;
 }
 
+/** The time of the last semantic checkpoint push, from the local ledger. */
+function readLastCheckpointAt(spoolRoot: string, sessionId: string): string | null {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(join(spoolRoot, sessionId, "checkpoint.json"), "utf8"),
+    ) as { at?: unknown };
+    return typeof parsed.at === "string" ? parsed.at : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Byte offset already preserved for this session, and where to record it. */
 function offsetPath(spoolRoot: string, sessionId: string): string {
   return join(spoolRoot, sessionId, "snapshot.json");
@@ -227,6 +243,31 @@ async function snapshotUnguarded(
   }
 
   const size = statSync(transcript).size;
+
+  // R02: a compaction boundary is where the changed intent, the rejected
+  // alternatives and the dead ends leave the model's context. A hook cannot
+  // distil them — it REQUESTS the distillation, once per boundary, and says so
+  // on stdout (a PreCompact hook's stdout reaches the operator) and in the
+  // spool, where `session status` and `session end` repeat it until a
+  // `jentrix push report|learning --checkpoint <boundary>` clears it. A
+  // checkpoint pushed since the last request is the answer; no checkpoint
+  // since the request means it stays pending. Nothing here manufactures one.
+  if (event === "PreCompact") {
+    const lastCheckpoint = readLastCheckpointAt(deps.spoolRoot, resolved.sessionId);
+    const pending = readCheckpointRequest(deps.spoolRoot, resolved.sessionId);
+    if (!pending) {
+      writeCheckpointRequest(deps.spoolRoot, resolved.sessionId, {
+        boundary: "compaction",
+        requestedAt: new Date().toISOString(),
+        reason: lastCheckpoint
+          ? `context compacted at ${new Date().toISOString()}; the last semantic checkpoint was at ${lastCheckpoint}`
+          : `context compacted at ${new Date().toISOString()}; no semantic checkpoint has been written this session`,
+      });
+    }
+    deps.writeOut(
+      "Jentrix: context is being compacted — write a semantic checkpoint after it (/jentrix-checkpoint → `jentrix push report --checkpoint compaction`, or `--checkpoint none-occurred` when nothing changed). A hook cannot distil; only a model turn can.",
+    );
+  }
 
   // The consent gate. Capture-off sessions get the BOUNDARY recorded and no
   // content: the fact that context was compacted here is the session's own
@@ -368,12 +409,21 @@ async function snapshotUnguarded(
         JSON.stringify({
           offset: from + bytesRead,
           at: new Date().toISOString(),
+          // R07: the deferred remainder is PENDING, not preserved — the host's
+          // close reads this and names it in the coverage report until a later
+          // boundary ships it.
+          deferredBytes: truncated ? size - (from + bytesRead) : 0,
+          transcriptSize: size,
         }),
         { mode: 0o600 },
       );
     } catch {
       // A lost offset re-preserves a range next time: duplicate, never a gap.
     }
+  } else {
+    deps.writeErr(
+      `jentrix session snapshot (${event}): the snapshot push failed (exit ${code}) — ${sliceLength} byte(s) remain UNPRESERVED and will be retried at the next boundary`,
+    );
   }
   // Never non-zero: a failed snapshot must not break the operator's compact.
   return 0;

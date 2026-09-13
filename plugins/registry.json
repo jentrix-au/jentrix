@@ -1,0 +1,105 @@
+{
+  "registryVersion": 1,
+  "behaviorRevision": "2026.09.13-2",
+  "semanticSchemaRevision": 1,
+  "hosts": {
+    "claude": {
+      "status": "enrolled",
+      "package": "@jentrix/plugin-claude",
+      "packageDir": "plugins/claude",
+      "manifest": "plugins/claude/.claude-plugin/plugin.json",
+      "hooks": "plugins/claude/hooks/hooks.json",
+      "entry": "plugins/workflows/claude-entry.md",
+      "workflowPath": "commands/jentrix-{name}.md",
+      "prefix": "/",
+      "adapterPaths": [
+        "src/session-host/session-claude-transcript.ts",
+        "src/session-host/session-claude-timing.ts"
+      ],
+      "ownedPaths": ["plugins/claude/"]
+    },
+    "codex": {
+      "status": "enrolled",
+      "package": "@jentrix/plugin-codex",
+      "packageDir": "plugins/codex",
+      "manifest": "plugins/codex/plugins/jentrix/.codex-plugin/plugin.json",
+      "hooks": "plugins/codex/plugins/jentrix/hooks/hooks.json",
+      "entry": "plugins/workflows/codex-entry.md",
+      "workflowPath": "plugins/jentrix/skills/jentrix-{name}/SKILL.md",
+      "prefix": "$",
+      "adapterPaths": [
+        "src/session-host/session-codex-events.ts",
+        "src/session-host/session-codex-hooks.ts"
+      ],
+      "ownedPaths": ["plugins/codex/"]
+    },
+    "opencode": {
+      "status": "planned",
+      "package": "@jentrix/plugin-opencode",
+      "packageDir": "plugins/opencode",
+      "plannedIn": "JEN-537",
+      "ownedPaths": ["plugins/opencode/"]
+    },
+    "pi": {
+      "status": "planned",
+      "package": "@jentrix/plugin-pi",
+      "packageDir": "plugins/pi",
+      "plannedIn": "JEN-537",
+      "ownedPaths": ["plugins/pi/"]
+    }
+  },
+  "workflows": ["connect", "align", "plan", "checkpoint", "review", "status", "end"],
+  "behaviors": {
+    "P01": "Connect the current host session; folder binding supplies the workspace",
+    "P02": "Align by task key or id with an accountable owner; server snapshot echoed verbatim",
+    "P03": "Plan from the opening request; prompt verbatim, goal and plan as typed inputs",
+    "P04": "Checkpoint before compaction, handoff and meaningful boundaries",
+    "P05": "Review the artifact category walk read-only; verdict comment only when authorized",
+    "P06": "Status and diagnostics: session, versions, liveness, receipt freshness, coverage",
+    "P07": "End: evidence floor, durable final output, final flush, readable RUN_SUMMARY, sealed session",
+    "P08": "Full product operation surface through the same CLI/core",
+    "P09": "Every typed artifact kind and provenance; binary outputs through the upload path",
+    "P10": "Observable lifecycle mapped when observed; synthesized text distinguishable",
+    "P11": "Usage and cost from provider receipts with deduplication and explicit missingness",
+    "P12": "TRACE and skeleton consent preserved independently",
+    "P13": "Resume, fork, reload, crash and offline recovery without borrowed identity",
+    "P14": "Installation and maintenance preserve unrelated resources and host trust",
+    "P15": "Complete generated instructions in every packaged entrypoint",
+    "P16": "Permanent synchronization of fixes and features across official hosts",
+    "P17": "Useful intent and handoff preservation a fresh agent can continue from",
+    "R01": "Final output: last-observed vs provisional vs explicit final; attempt identity; durable delivery; supersession",
+    "R02": "Semantic checkpoint boundaries requested by hooks, distilled by the agent, never manufactured",
+    "R03": "Structured verification receipts bound to claims by gate definition and candidate",
+    "R04": "Bounded registered-output manifests; uncommitted and binary outputs preserved distinctly",
+    "R05": "Typed common event fields with provider extensions; explicit coverage classes",
+    "R06": "Skeleton cmd/command and absolute paths; exact overflow accounting; checkpoint indexing",
+    "R07": "Declared truncation with original/retained sizes and recoverable references",
+    "R08": "Versioned per-kind semantic schema rendered to Markdown; outcome-first summary; recall excludes superseded"
+  },
+  "sharedPaths": [
+    "src/session/",
+    "src/session-host/",
+    "src/session-host-main.ts",
+    "src/commands/",
+    "src/main.ts",
+    "plugins/workflows/",
+    "plugins/registry.json",
+    "scripts/generate-workflows.mjs",
+    "scripts/check-plugin-sync.mjs"
+  ],
+  "requiredChecks": {
+    "ci": ["pnpm typecheck", "scripts/check-version.mjs", "CLI_PACK_SMOKE=1 pnpm test", "pnpm validate:examples", "pnpm check:plugin-sync"],
+    "release": ["scripts/check-version.mjs", "pnpm typecheck", "pnpm test", "pnpm check:plugin-sync --packed"]
+  },
+  "conformanceSuite": "test/plugin-sync-conformance.test.ts",
+  "scenarios": [
+    "S-R01-final-output-identity",
+    "S-R01-progress-note-not-final",
+    "S-R03-receipt-structure",
+    "S-R05-image-only-input",
+    "S-R05-tool-correlation",
+    "S-R06-skeleton-cmd-and-absolute-paths",
+    "S-R06-skeleton-overflow-exact",
+    "S-R07-prompt-truncation-declared"
+  ]
+}

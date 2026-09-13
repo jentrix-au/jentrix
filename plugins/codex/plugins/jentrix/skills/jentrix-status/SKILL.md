@@ -58,3 +58,15 @@ labels. Read actual board columns before moving tasks. Work goes into its
 working column; completed work goes to In review. Accept/Return and terminal
 completion belong to the operator. Typed artifacts and completed verification
 commands provide evidence; a report alone does not prove work is finished.
+
+Records carry their meaning in a header, not a title. `jentrix push report
+--final` is the explicit final deliverable; `--checkpoint <boundary>` is a
+semantic checkpoint (answer a `Checkpoint requested:` line from `session
+status` — a hook cannot distil, only a model turn can); `push log --from-cmd`
+is a verification receipt that counts only for a gate bound to a package
+script, a known runner or a reviewed wrapper, run from the checkout root as one
+plain `&&`-chained line of literal arguments (no `||`/`|`/`;`, no `cd`, no
+help/version flags, no `$VAR` expansion outside single quotes, no second line
+after a `#` comment), at exit 0, on the revision and working tree the session
+closes on.
+What the host records on its own is provisional and says so.

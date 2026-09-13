@@ -22,6 +22,38 @@ interface ClaudeContentBlock {
   tool_use_id?: string;
   content?: unknown;
   is_error?: boolean;
+  /** image/document blocks: the media type the host stamped (never the bytes). */
+  source?: { type?: string; media_type?: string; data?: unknown };
+}
+
+/**
+ * R05 — non-text input blocks, classified rather than dropped. An image-only
+ * user entry used to map to `events: []` with `unrecognized: false`, which is
+ * a silent success over a prompt the host visibly received.
+ */
+function attachmentsOf(
+  blocks: ClaudeContentBlock[],
+): Array<{ kind: "image" | "document" | "other"; mediaType?: string }> {
+  const out: Array<{ kind: "image" | "document" | "other"; mediaType?: string }> =
+    [];
+  for (const block of blocks) {
+    if (block.type === "image" || block.type === "document") {
+      out.push({
+        kind: block.type,
+        ...(typeof block.source?.media_type === "string"
+          ? { mediaType: block.source.media_type }
+          : {}),
+      });
+    } else if (
+      block.type &&
+      !["text", "tool_use", "tool_result", "thinking", "redacted_thinking"].includes(
+        block.type,
+      )
+    ) {
+      out.push({ kind: "other" });
+    }
+  }
+  return out;
 }
 
 interface ClaudeTranscriptEntry {
@@ -140,8 +172,8 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
     const blocks = Array.isArray(content) ? content : [];
     const toolResults = blocks.filter((b) => b.type === "tool_result");
     for (const block of toolResults) {
-      events.push(
-        baseEvent(
+      events.push({
+        ...baseEvent(
           entry,
           "tool_result",
           {
@@ -151,11 +183,20 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
           },
           `:result:${block.tool_use_id ?? ""}`,
         ),
-      );
+        // R05: the common correlation id and outcome ride beside the payload.
+        ...(block.tool_use_id ? { ids: { toolCallId: block.tool_use_id } } : {}),
+        outcome: block.is_error ? "error" : "ok",
+      });
     }
     const text = textOf(content);
-    if (text) {
-      events.push(baseEvent(entry, "user_message", { text }));
+    const attachments = attachmentsOf(blocks);
+    if (text || attachments.length) {
+      // R05: an image-only (or document-only) prompt is OBSERVED with its
+      // attachments and an empty text, never discarded as recognized-empty.
+      events.push({
+        ...baseEvent(entry, "user_message", { text }),
+        ...(attachments.length ? { attachments } : {}),
+      });
     }
     return {
       events,
@@ -183,17 +224,18 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
     // D12: `messageId` rides the payload so the bridge can join the text
     // blocks of ONE streamed message; without it the "final response" is
     // whichever block happened to land last.
-    events.push(
-      baseEvent(entry, "assistant_message", {
+    events.push({
+      ...baseEvent(entry, "assistant_message", {
         text,
         ...(messageId ? { messageId } : {}),
       }),
-    );
+      ...(messageId ? { ids: { messageId } } : {}),
+    });
   }
   for (const block of blocks) {
     if (block.type === "tool_use") {
-      events.push(
-        baseEvent(
+      events.push({
+        ...baseEvent(
           entry,
           "tool_call",
           {
@@ -203,7 +245,16 @@ export function mapClaudeTranscriptLine(line: string): MappedTranscriptLine {
           },
           `:tool:${block.id ?? ""}`,
         ),
-      );
+        // R05: correlation ids — the call id and the message that made it.
+        ...(block.id || messageId
+          ? {
+              ids: {
+                ...(block.id ? { toolCallId: block.id } : {}),
+                ...(messageId ? { messageId } : {}),
+              },
+            }
+          : {}),
+      });
     }
   }
   const usage = entry.message?.usage;

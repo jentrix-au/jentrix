@@ -186,6 +186,71 @@ describe("session end over real host files (F1c)", () => {
     assert.match(d.out.join("\n"), /no token telemetry was recorded/);
   });
 
+  it("an EXPLICIT session id closes even when both Codex and Claude identify the process (JEN-536 Codex trial)", async () => {
+    const spool = mkdtempSync(join(tmpdir(), "stacks-tel-amb-"));
+    mkdirSync(join(spool, "ses_amb"), { recursive: true });
+    writeFileSync(
+      join(spool, "ses_amb", "host.json"),
+      JSON.stringify({ pid: 1, exitedAt: "2026-09-12T10:00:00.000Z" }),
+    );
+    const d = endDeps(spool, {
+      id: "ses_amb",
+      status: "ACTIVE",
+      captureStatus: "OFF_BY_DESIGN",
+      captureComplete: false,
+      alignment: { capture: "off" },
+      updatedAt: "2026-09-12T10:00:00.000Z",
+      usage: FULL,
+    });
+    // A nested host: the Codex thread inherited the parent Claude session's id.
+    d.env = { CODEX_THREAD_ID: "thread-1", CLAUDE_CODE_SESSION_ID: "claude-1" };
+    assert.equal(await runSessionEnd("ses_amb", {}, d), EXIT_CODES.OK);
+    assert.doesNotMatch(d.err.join("\n"), /PROVIDER_SESSION_AMBIGUOUS/);
+  });
+
+  it("an INTERRUPTED session whose HEAD moved gets its attested DIFF on `session end <id>` (JEN-536 Codex trial)", async () => {
+    const spool = mkdtempSync(join(tmpdir(), "stacks-tel-int-"));
+    const repo = mkdtempSync(join(tmpdir(), "stacks-tel-repo-"));
+    mkdirSync(join(spool, "ses_int"), { recursive: true });
+    writeFileSync(
+      join(spool, "ses_int", "host.json"),
+      JSON.stringify({ pid: 1, exitedAt: "2026-09-12T10:00:00.000Z" }),
+    );
+    const pushes: Array<{ kind: string; attested?: boolean; title: string }> = [];
+    const d = endDeps(spool, {
+      id: "ses_int",
+      status: "INTERRUPTED",
+      captureStatus: "OFF_BY_DESIGN",
+      captureComplete: true,
+      alignment: { capture: "off" },
+      repoOwnerName: "acme/app",
+      startHead: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      updatedAt: "2026-09-12T10:00:00.000Z",
+      usage: FULL,
+    });
+    d.cwd = () => repo;
+    d.git = async (args: string[]) => {
+      const key = args.join(" ");
+      if (key === "rev-parse --show-toplevel") return { code: 0, stdout: `${repo}\n` };
+      if (key === "remote get-url origin") return { code: 0, stdout: "git@github.com:acme/app.git\n" };
+      if (key === "symbolic-ref --short -q HEAD") return { code: 0, stdout: "main\n" };
+      if (key === "rev-parse HEAD") return { code: 0, stdout: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" };
+      if (key.startsWith("status --porcelain")) return { code: 0, stdout: "" };
+      if (args[0] === "rev-list") return { code: 0, stdout: "1\n" };
+      if (args[0] === "log") return { code: 0, stdout: "commit bbbb\n\n    fix: it\n\ndiff --git a/x b/x\n" };
+      return { code: 1, stdout: "" };
+    };
+    d.fetchImpl = (async (_url: URL | string, init?: RequestInit) => {
+      pushes.push(JSON.parse(String(init?.body)) as (typeof pushes)[number]);
+      return new Response(JSON.stringify({ artifactId: "art_diff" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    assert.equal(await runSessionEnd("ses_int", {}, d), EXIT_CODES.OK);
+    assert.equal(pushes.length, 1);
+    assert.equal(pushes[0]!.kind, "diff");
+    assert.equal(pushes[0]!.attested, true);
+    assert.match(d.out.join("\n"), /Attested diff pushed → artifact art_diff/);
+  });
+
   it("states the four-way split on a healthy close (F4: the closing fact)", async () => {
     const spool = mkdtempSync(join(tmpdir(), "stacks-tel2-"));
     mkdirSync(join(spool, "ses_ok"), { recursive: true });
@@ -322,12 +387,17 @@ describe("session end against a host that survived the evidence floor", () => {
     await runSessionEnd("ses_ack", { acknowledgeEvidenceGaps: true }, d);
     const request = JSON.parse(
       readFileSync(join(dir, "end-request.json"), "utf8"),
-    ) as { acknowledgeEvidenceGaps?: boolean };
+    ) as Record<string, unknown>;
     assert.equal(
       request.acknowledgeEvidenceGaps,
       true,
       "the host closes the session, so the operator's --acknowledge-evidence-gaps must reach IT",
     );
+    // F02: the tree binding travels with the request — the fields are always
+    // present (null when the checkout is unreadable), never silently dropped.
+    for (const key of ["endDirty", "endTreeDigest", "uncommittedPatchArtifactId"]) {
+      assert.ok(key in request, `end request carries ${key}`);
+    }
   });
 
   it("drops a previous end's refusal so it cannot answer the next one", async () => {

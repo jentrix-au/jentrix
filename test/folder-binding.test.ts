@@ -348,6 +348,21 @@ function ackingDeps(caller: SessionToolCaller, dir: string, spool: string) {
   });
 }
 
+test("session align without --provider refuses when both Codex and Claude identify the process — never takes Claude first (JEN-536)", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const spool = mkdtempSync(join(tmpdir(), "jspool-"));
+  const { caller, aligns } = alignWorld(dir, spool);
+  const d = deps(caller, dir, {
+    spoolRoot: spool,
+    env: { CODEX_THREAD_ID: "thread-1", CLAUDE_CODE_SESSION_ID: "claude-parent" },
+  });
+  const code = await runSessionAlign({ task: "ACM-42" }, d);
+  assert.notEqual(code, EXIT_CODES.OK);
+  assert.match(d.err.join("\n"), /PROVIDER_SESSION_AMBIGUOUS/);
+  assert.equal(aligns.length, 0, "nothing was attached or aligned");
+});
+
 test("session align prints the Related evidence block the server returned, and passes it through in --json (AC5.2)", async () => {
   const dir = root();
   writeFolderBinding(dir, BINDING);

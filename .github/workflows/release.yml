@@ -144,6 +144,13 @@ jobs:
           echo "codex=$codex" >> "$GITHUB_OUTPUT"
           echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
+      # plugin-sync G05: the EXACT tarballs above carry one behaviour revision,
+      # every enrolled host package, and generated resources whose digest
+      # matches what the source tree generated. A missing host package, a stale
+      # resource or a mixed revision refuses the release before any publish.
+      - name: Plugin synchronization guard over the packed set
+        run: pnpm check:plugin-sync --packed "$RUNNER_TEMP/pack" --skip-tests --changed ""
+
       # CLEAN-INSTALL AND TEST THE EXACT TARBALLS, together, in an empty
       # project: the installed bin runs, the generated tree renders, the plugin
       # packages resolve from the CLI's dependency tree (`--dry-run` stages

@@ -1,0 +1,83 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-12-jen-536-review-remediation",
+  "issue": "JEN-536",
+  "title": "M1 review remediation (reports/plugin-m1-review-2026-09-12): F01 gate classifier bound to definitions, F02 tree binding through the live-host close, F03 durable final-output body, F06 G05 range/schema validation, R04/A19 register retry convergence",
+  "behaviors": [
+    "R01",
+    "R03",
+    "R04",
+    "P07",
+    "P16"
+  ],
+  "base": {
+    "revision": "c795940179214c991ce1d4079e4752a097c5a55d"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "plugins/claude/commands/",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/codex/plugins/jentrix/skills/",
+    "plugins/registry.json",
+    "plugins/workflows/common.md",
+    "plugins/workflows/end.md",
+    "scripts/check-plugin-sync.mjs",
+    "scripts/semver-range.mjs",
+    "scripts/validate-examples.mjs",
+    "src/commands/push.ts",
+    "src/repo.ts",
+    "src/session-host/gate-classifier.ts",
+    "src/session-host/session-bridge.ts",
+    "src/session-host/session-host.ts",
+    "src/session/end.ts",
+    "test/audit-corrections.test.ts",
+    "test/gate-classifier.test.ts",
+    "test/pack-smoke.test.ts",
+    "test/plugin-sync-conformance.test.ts",
+    "test/plugin-sync.test.ts",
+    "test/session-bridge.smoke.test.ts",
+    "test/session-telemetry.test.ts",
+    "test/session-watch-host.smoke.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/gate-classifier.test.ts",
+        "test/audit-corrections.test.ts",
+        "test/plugin-sync-conformance.test.ts",
+        "test/session-bridge.smoke.test.ts",
+        "test/session-watch-host.smoke.test.ts",
+        "test/session-telemetry.test.ts",
+        "test/plugin-sync.test.ts",
+        "test/pack-smoke.test.ts"
+      ],
+      "rationale": "All six review defects live in shared code: the receipt classifier (push.ts + gate-classifier.ts, mirrored on the server), the end-request \u2192 host \u2192 bridge close protocol (end.ts, session-host.ts, session-bridge.ts), the durable final-output record (session-bridge.ts) and the G05 guard. Regenerated /jentrix-end and common text describe the new binding rule."
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/gate-classifier.test.ts",
+        "test/audit-corrections.test.ts",
+        "test/plugin-sync-conformance.test.ts",
+        "test/session-bridge.smoke.test.ts",
+        "test/session-watch-host.smoke.test.ts",
+        "test/session-telemetry.test.ts",
+        "test/plugin-sync.test.ts",
+        "test/pack-smoke.test.ts"
+      ],
+      "rationale": "Same shared code; the Codex host runs the same bridge/host close path and the same receipt builder. Regenerated $jentrix-end and common skill text."
+    },
+    "opencode": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    },
+    "pi": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    }
+  }
+}

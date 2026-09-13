@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync, execFile } from "node:child_process";
 import {
+  cpSync,
   existsSync,
-  readFileSync,
   mkdirSync,
   mkdtempSync,
-  rmSync,
+  readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
@@ -69,6 +70,7 @@ describe("packed tarballs — cold install of the three packages", () => {
         // 2. No `workspace:` range survives packing: pnpm rewrites the CLI's
         //    plugin pins to exact versions, and npm would refuse the tarball
         //    otherwise.
+        const revisions = new Set<string>();
         for (const tgz of [cliTgz, claudeTgz, codexTgz]) {
           const manifest = execFileSync(
             "tar",
@@ -79,6 +81,60 @@ describe("packed tarballs — cold install of the three packages", () => {
             !/workspace:/.test(manifest),
             `${tgz} still carries a workspace: range`,
           );
+          // plugin-sync G05: every packed candidate carries the SAME
+          // behaviour revision, and each plugin its resource digest, so a
+          // mixed install is detectable from the tarballs alone.
+          const meta = (JSON.parse(manifest) as { jentrix?: Record<string, unknown> }).jentrix;
+          assert.ok(meta, `${tgz} carries no jentrix metadata block`);
+          assert.equal(typeof meta.behaviorRevision, "string", `${tgz}: behaviorRevision missing`);
+          revisions.add(String(meta.behaviorRevision));
+          if (tgz !== cliTgz) {
+            assert.match(String(meta.resourceDigest ?? ""), /^[0-9a-f]{64}$/, `${tgz}: resourceDigest missing`);
+            assert.equal(typeof meta.cliRange, "string", `${tgz}: cliRange missing`);
+          } else {
+            assert.deepEqual(meta.hosts, ["claude", "codex"]);
+          }
+        }
+        assert.equal(revisions.size, 1, `mixed behaviour revisions across the packed set: ${[...revisions].join(", ")}`);
+        // 2b. The release workflow's own post-pack gate, on these exact
+        //     tarballs: `check:plugin-sync --packed` must read each plugin
+        //     package at its packageDir and find manifests, hooks, workflows
+        //     and metadata (G05). The first real run of this step (JEN-536)
+        //     failed on every tarball — this is what keeps it honest.
+        execFileSync(
+          process.execPath,
+          [join(CLI_ROOT, "scripts", "check-plugin-sync.mjs"), "--packed", work, "--skip-tests", "--changed", ""],
+          { cwd: CLI_ROOT, encoding: "utf8", stdio: "pipe" },
+        );
+        // 2c. F06 (2026-09-12 review): the packed guard measures each
+        //     plugin's cliRange against the PACKED CLI. A tampered tarball
+        //     whose range excludes it is refused — on the real tarballs, not
+        //     a source-tree fixture.
+        {
+          const tampered = mkdtempSync(join(tmpdir(), "jentrix-pack-tamper-"));
+          // The tarball paths are already absolute (`tarball()` joins `work`).
+          for (const f of [cliTgz, codexTgz]) cpSync(f, join(tampered, basename(f)));
+          const scratch = mkdtempSync(join(tmpdir(), "jentrix-pack-tamper-src-"));
+          execFileSync("tar", ["-xzf", claudeTgz, "-C", scratch]);
+          const pkgPath = join(scratch, "package", "package.json");
+          const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { jentrix: { cliRange: string } };
+          pkg.jentrix.cliRange = ">=99.0.0 <100.0.0";
+          writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+          execFileSync("tar", ["-czf", join(tampered, basename(claudeTgz)), "-C", scratch, "package"]);
+          let refused = "";
+          try {
+            execFileSync(
+              process.execPath,
+              [join(CLI_ROOT, "scripts", "check-plugin-sync.mjs"), "--packed", tampered, "--skip-tests", "--changed", ""],
+              { cwd: CLI_ROOT, encoding: "utf8", stdio: "pipe" },
+            );
+          } catch (error) {
+            const e = error as { stdout?: string; stderr?: string };
+            refused = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+          }
+          assert.match(refused, /cliRange ">=99\.0\.0 <100\.0\.0" does not include @jentrix\/cli \d+\.\d+\.\d+ of this train/, "the tampered packed set must be refused");
+          rmSync(tampered, { recursive: true, force: true });
+          rmSync(scratch, { recursive: true, force: true });
         }
 
         // 3. Cold-install the three tarballs TOGETHER into a fresh, empty

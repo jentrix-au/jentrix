@@ -19,7 +19,20 @@ pipeline), the typed artifacts ARE the record — push them before closing:
 1. If this session is aligned (`jentrix session status` shows the alignment):
    - Push the final report: write a concise session report (what was done,
      what changed, what's next) and run
-     `jentrix push report --title "<short title>"` with the content on stdin.
+     `jentrix push report --final --title "<short title>"` with the content on
+     stdin. `--final` marks it the EXPLICIT final deliverable: the session
+     host also records your last response as a PROVISIONAL final output (its
+     title says so), and the server keeps at most one current closing output —
+     the explicit one supersedes the host's copy, and a later `--final` push
+     supersedes the earlier. Without `--final`, the record's final output is
+     whatever the host last observed, which may be a mid-turn progress note.
+   - **Answer a pending checkpoint request.** If `jentrix session status`
+     prints `Checkpoint requested: …`, write it now
+     (`jentrix push report --checkpoint <boundary> …`, or
+     `--checkpoint none-occurred` when nothing changed). `session end` does
+     not refuse over it — it prints the unanswered request at the close, and
+     a fresh agent reading the record will see that the boundary went
+     undistilled.
    - Push any decisions made this session that were not already pushed. **Ask
      what the decision rested on BEFORE you write the memo** — the basis is
      not a field to fill in afterwards, it is the thing that makes the memo a
@@ -45,18 +58,31 @@ pipeline), the typed artifacts ARE the record — push them before closing:
      generates the real `git log --patch` for the session's range itself and
      pushes it as the attested DIFF (evidence check E1) — a model-authored
      diff would be a second, unattested copy.
+   - **Ending dirty by design?** When the authorization was "no commits" (or
+     the work stays uncommitted for review), the working tree IS the output.
+     `jentrix session end --preserve-uncommitted` pushes the uncommitted
+     delta — tracked changes and untracked files, bounded at 256 KB stat-first
+     — as an attested patch bound to the close's tree digest. Without the
+     flag, `session end` says the tree is dirty and NOT preserved; relay that
+     line rather than describing the changes from memory.
    Ask the operator (native choice UI) before pushing anything they might
    not want recorded; never invent content — summarize what actually
    happened.
-2. **Batched mint confirmations.** Collect this session's gap/issue/findings
-   artifacts that are not yet cards (each push printed its offer) and ask the
-   operator ONCE, as a single native choice list: which should become cards?
-   For each accepted one run
+2. **Batched mint confirmations — optional, never blocking.** Collect this
+   session's gap/issue/findings artifacts that are not yet cards (each push
+   printed its offer) and ask the operator ONCE, as a single native choice
+   list: which should become cards? For each accepted one run
    `jentrix artifact mint-issue --artifact <id> --from-task <taskId>`
    (add `--blocks` when it blocks acceptance of the aligned task). Mints are
    idempotent per artifact (`mint-<artifactId>`), so a retry converges on the
    same card. A declined mint leaves the artifact exactly as pushed — never
-   nag again, never mint unasked.
+   nag again, never mint unasked. **If no answer can arrive** — a
+   non-interactive run, or the operator does not reply — mint nothing, list
+   the artifact ids whose mint is still pending in the report you pushed in
+   step 1 (or in your closing reply), and go on to steps 3 and 4: the
+   artifacts are already preserved, and closing the session is what
+   preserves the rest. Never pick an answer for the operator, and never let
+   an optional mint stand between the session and its close.
 3. Move the aligned task to the board's **"In review"** column when the work
    is finished — not to a terminal one. Acceptance is a human's to record
    (Accept / Return on the task panel writes who decided, when, and on which
@@ -75,7 +101,9 @@ pipeline), the typed artifacts ARE the record — push them before closing:
    session status` shows); pass an id only when the operator names a different
    session. If the CLI reports ambiguous sessions, ask the operator which one;
    never choose a sibling. Telemetry is recorded by the session host's attested path — never
-   report token numbers yourself.
+   report token numbers yourself. The RUN_SUMMARY does not exist before this
+   step — `session end` is what writes it — so its absence in `session
+   status` is expected and is never a reason to hold off the close.
 5. **Relay the closing telemetry line verbatim.** `session end` prints a
    `Telemetry:` line, and on stderr it may print `NO TOKEN TELEMETRY: …`.
    Exit 0 does NOT mean telemetry was recorded — on 2026-08-11 a real session
@@ -108,7 +136,27 @@ REFUSE to close when they are unmet:
   **same gate family**: `typecheck` · `lint` · `test` · `e2e`. Family, not
   exact command — "tests green" is covered by `pnpm test:mvp` and is NOT
   covered by `pnpm lint`. A pasted LOG covers nothing; the CLI warns
-  `UNATTESTED LOG` when you push one, and the summary marks it.
+  `UNATTESTED LOG` when you push one, and the summary marks it. The LOG is a
+  structured receipt: it counts only when the command **binds to a gate
+  definition** — a package script (`pnpm test:mvp`, `npm run typecheck`: the
+  family comes from the script's NAME and the receipt records the script's
+  body and digest), a known runner (`vitest`, `jest`, `tsc`, `eslint`,
+  `playwright test`, `node --test`, `pytest`, `cargo test`, …), or a wrapper
+  listed in the checkout's reviewed `.jentrix/gates.json` — it exited 0, and
+  it ran at the revision AND on the working tree the session closes on
+  (`session end` measures both; a receipt from before your last edit does
+  not cover it). `--from-cmd "echo tests green"`, an inline `node -e "…"`,
+  or a line composed with `||`, `;`, `|` or `&` — glued or spaced — records a
+  LOG and proves nothing, and so do `--help`/`--version`/`--listTests`-style
+  runs, subshells, `$(…)` substitution, any `$VAR`/`${VAR}` expansion outside
+  single quotes (the receipt cannot see what the shell substituted — `"$FLAG"`
+  may be `--help`, `"$FILE"` a path in another checkout), a second line after
+  a `#` comment, a `cd`/`pushd` or `--prefix`/`-C`/`--filter` that moves
+  execution, and any argument that reaches outside the checkout (an absolute
+  or `../` path). The CLI says why when you push one. Run the gate from the
+  checkout root as one line of literal arguments, chain gates only with
+  `&&`, never pipe the gate (`| tail`): the exit code recorded would be the
+  pipe's. A red gate you are recording on purpose takes `--expected-failure`.
 
 Comply by pushing the named evidence and retrying, or deviate honestly with a
 `gap`. `--acknowledge-evidence-gaps` closes anyway and stamps each unmet check
@@ -142,3 +190,15 @@ labels. Read actual board columns before moving tasks. Work goes into its
 working column; completed work goes to In review. Accept/Return and terminal
 completion belong to the operator. Typed artifacts and completed verification
 commands provide evidence; a report alone does not prove work is finished.
+
+Records carry their meaning in a header, not a title. `jentrix push report
+--final` is the explicit final deliverable; `--checkpoint <boundary>` is a
+semantic checkpoint (answer a `Checkpoint requested:` line from `session
+status` — a hook cannot distil, only a model turn can); `push log --from-cmd`
+is a verification receipt that counts only for a gate bound to a package
+script, a known runner or a reviewed wrapper, run from the checkout root as one
+plain `&&`-chained line of literal arguments (no `||`/`|`/`;`, no `cd`, no
+help/version flags, no `$VAR` expansion outside single quotes, no second line
+after a `#` comment), at exit 0, on the revision and working tree the session
+closes on.
+What the host records on its own is provisional and says so.

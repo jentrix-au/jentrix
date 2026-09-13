@@ -70,6 +70,7 @@ import {
   writeHostMarker,
 } from "./session-spool.js";
 import { CLI_VERSION as RUNNER_VERSION } from "../client.js";
+import { defaultGitRunner, scopedDirtyDigest } from "../repo.js";
 
 export interface SessionRunPlan {
   protocolVersion: 1;
@@ -138,6 +139,43 @@ export interface SessionRunPlan {
 
 export function defaultSpoolRoot(): string {
   return join(homedir(), ".config", "stacks", "session-spool");
+}
+
+/** D9's opening-prompt cap. */
+export const MAX_OPENING_PROMPT_BYTES = 64 * 1024;
+
+/**
+ * R07 — bound the opening prompt to the cap and SAY so. The audit found the
+ * prompt silently cut at 64 KiB: a reader of the artifact could not tell a
+ * short prompt from a truncated one. The marker names the original and
+ * retained sizes; the full text stays in the local transcript, which is
+ * where the recoverable reference points.
+ */
+export function boundedOpeningPrompt(prompt: string): {
+  body: string;
+  truncated: boolean;
+  originalBytes: number;
+  retainedBytes: number;
+} {
+  const originalBytes = Buffer.byteLength(prompt, "utf8");
+  if (originalBytes <= MAX_OPENING_PROMPT_BYTES) {
+    return { body: prompt, truncated: false, originalBytes, retainedBytes: originalBytes };
+  }
+  const notice = (retained: number) =>
+    `\n\n[truncated: opening prompt was ${originalBytes} bytes; ${retained} retained by the ${MAX_OPENING_PROMPT_BYTES / 1024} KiB cap — the complete prompt remains in the local provider transcript]`;
+  // Leave room for the notice, then cut on a UTF-8 boundary.
+  const room = MAX_OPENING_PROMPT_BYTES - Buffer.byteLength(notice(originalBytes), "utf8") - 8;
+  const kept = Buffer.from(prompt, "utf8")
+    .subarray(0, Math.max(0, room))
+    .toString("utf8")
+    .replace(/�+$/, "");
+  const retainedBytes = Buffer.byteLength(kept, "utf8");
+  return {
+    body: kept + notice(retainedBytes),
+    truncated: true,
+    originalBytes,
+    retainedBytes,
+  };
 }
 
 /** Read only complete lines appended since `offset`; never load prior chat. */
@@ -446,6 +484,13 @@ export async function runClaudeSessionHost(
             "usage",
           ],
           notObservable: ["command", "file_change", "plan", "error"],
+          // R05: what the Codex hook surface does not carry even when the
+          // host has it — said here, so the coverage report can name it.
+          unsupported: [
+            "image/document attachments on prompts",
+            "child-session (sub-agent) events",
+            "streamed assistant revisions (the Stop hook carries the final text only)",
+          ],
         }
       : {
           provider: "claude",
@@ -460,6 +505,9 @@ export async function runClaudeSessionHost(
             "error",
           ],
           notObservable: ["command", "file_change", "plan"],
+          // R05: sidechain (sub-agent) entries are skipped by the transcript
+          // mapper — a parent's returned summary is not the child's record.
+          unsupported: ["child-session (sidechain) events beyond the parent's own entries"],
         },
   );
   bridge.startObserving();
@@ -577,6 +625,11 @@ export async function runClaudeSessionHost(
   // CLI's fallback used to carry the flag only because the refusal killed the
   // host, and the host no longer dies.
   let endAcknowledgeGaps = false;
+  // F02: what `jentrix session end` measured when it wrote the request — the
+  // patch id is the CLI's (only it pushes the patch); the digest is a
+  // fallback for a checkout this host cannot read at close.
+  let endTreeDigestRequested: string | null = null;
+  let endPatchArtifactId: string | null = null;
   /** CLI-counted commits for the session window — only the CLI can count them. */
   let endCommitCount: number | null = null;
   let lastPeriodicFlushAt = 0;
@@ -614,11 +667,8 @@ export async function runClaudeSessionHost(
     }
     if (!prompt) return; // no visible user prompt yet — the transcript grows
     // Redact FIRST (a marker split at the cap is harmless; a secret split at
-    // the cap is not), then bound to D9's 64 KB.
-    let body = promptRedactor.text(prompt);
-    while (Buffer.byteLength(body, "utf8") > 64 * 1024) {
-      body = body.slice(0, -1024);
-    }
+    // the cap is not), then bound to D9's 64 KB — DECLARING the cut (R07).
+    const body = boundedOpeningPrompt(promptRedactor.text(prompt)).body;
     const post = async (bearer: string) =>
       (deps.fetchImpl ?? fetch)(
         new URL(
@@ -681,13 +731,23 @@ export async function runClaudeSessionHost(
         const request = JSON.parse(readFileSync(endRequestPath, "utf8")) as {
           acknowledgeEvidenceGaps?: boolean;
           commitCount?: number;
+          endTreeDigest?: string | null;
+          uncommittedPatchArtifactId?: string | null;
         };
         endAcknowledgeGaps = request.acknowledgeEvidenceGaps === true;
         endCommitCount =
           typeof request.commitCount === "number" ? request.commitCount : null;
+        endTreeDigestRequested =
+          typeof request.endTreeDigest === "string" ? request.endTreeDigest : null;
+        endPatchArtifactId =
+          typeof request.uncommittedPatchArtifactId === "string"
+            ? request.uncommittedPatchArtifactId
+            : null;
       } catch {
         endAcknowledgeGaps = false; // unreadable request: the floor still applies
         endCommitCount = null;
+        endTreeDigestRequested = null;
+        endPatchArtifactId = null;
       }
       try {
         unlinkSync(endRequestPath);
@@ -951,6 +1011,22 @@ export async function runClaudeSessionHost(
     // bridge.complete() itself — no provider-specific flush here.
 
     const end = await endRepoState(plan.repoRoot);
+    // F02: bind the close to the tree AS IT IS NOW — the host is the one
+    // closing. The CLI's digest (moments older) stands in only when this
+    // checkout cannot be read here.
+    const endTreeDigest =
+      (await scopedDirtyDigest(defaultGitRunner, plan.repoRoot).catch(
+        () => null,
+      )) ?? endTreeDigestRequested;
+    if (
+      endTreeDigestRequested &&
+      endTreeDigest &&
+      endTreeDigest !== endTreeDigestRequested
+    ) {
+      log(
+        "capture: the working tree changed between the end request and this close — the close reports the tree as it is now; the preserved patch (if any) describes the earlier tree",
+      );
+    }
     let failure: unknown = null;
     // JEN-295: only the operator's own `session end` is a COMPLETED close. A
     // provider exit with no end request used to attempt one too, and a floor
@@ -983,6 +1059,8 @@ export async function runClaudeSessionHost(
         end,
         acknowledgeEvidenceGaps: endAcknowledgeGaps,
         commitCount: endCommitCount,
+        endTreeDigest,
+        uncommittedPatchArtifactId: endPatchArtifactId,
       })
       .catch((error: unknown) => {
         failure = error;
@@ -1010,6 +1088,8 @@ export async function runClaudeSessionHost(
       endRequested = false;
       endAcknowledgeGaps = false;
       endCommitCount = null;
+      endTreeDigestRequested = null;
+      endPatchArtifactId = null;
       timer = setInterval(() => {
         void poll();
       }, 2_000);
@@ -1021,11 +1101,19 @@ export async function runClaudeSessionHost(
     markHostExited(sessionDir, 1);
     return 1;
   }
-  // AGE-649: the closing output is named in the same line as the summary, so an
-  // operator can see whether it was stored without opening the session page.
-  const output = result.finalResponseArtifactId
-    ? ` · output ${result.finalResponseArtifactId}`
-    : " · output not observed";
+  // AGE-649 / R01: the closing output is named in the same line as the
+  // summary, WITH its delivery state, so an operator can see whether it was
+  // preserved — and whether it is the host's provisional copy or the agent's
+  // explicit final — without opening the session page.
+  const fo = result.finalOutput;
+  const output =
+    fo.delivery === "acked" || fo.delivery === "reused"
+      ? ` · output ${fo.artifactId} (provisional, attempt ${fo.attemptId?.slice(0, 8)}${fo.delivery === "reused" ? ", reused" : ""})`
+      : fo.delivery === "final-exists"
+        ? ` · output ${fo.artifactId ?? "?"} (explicit final)`
+        : fo.delivery === "failed"
+          ? ` · output NOT PRESERVED (${fo.reason ?? "upload failed"})`
+          : " · output not observed";
   // Say the status the server actually recorded — a provider-exit close is
   // INTERRUPTED, and "closed" over it would read as a completed session.
   const closed =

@@ -79,6 +79,7 @@ import { registerMcpCommand } from "./commands/mcp";
 import { registerTaskContextCommands } from "./commands/task-context";
 import { registerTaskProjectCommand } from "./commands/task-project";
 import { registerMintIssueCommand, registerPushCommand } from "./commands/push";
+import { registerArtifactRegisterCommand } from "./commands/artifact-register";
 import { registerSetupCommand } from "./commands/setup";
 import { registerSnapshotCommand } from "./commands/snapshot";
 import { registerToolCommand, type ToolCommandDeps } from "./commands/tool";
@@ -724,6 +725,9 @@ const artifactCommand = registerArtifactCommand(
 // The command the findings-push offer prints (`jentrix artifact mint-issue`) —
 // session deps because the mint writes through MCP with correlation.
 registerMintIssueCommand(artifactCommand, sessionDeps, onExit);
+// R04: the output manifest rides the session deps too (alignment marker,
+// attested push) — same reason mint-issue does.
+registerArtifactRegisterCommand(artifactCommand, sessionDeps, onExit);
 
 if (manifest) {
   try {

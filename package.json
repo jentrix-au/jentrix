@@ -62,7 +62,9 @@
     "build": "node scripts/build.mjs",
     "prepack": "node scripts/build.mjs",
     "validate:examples": "node scripts/validate-examples.mjs",
-    "gen:workflows": "node scripts/generate-workflows.mjs"
+    "gen:workflows": "node scripts/generate-workflows.mjs",
+    "check:plugin-sync": "node scripts/check-plugin-sync.mjs",
+    "sync:plugin-meta": "node scripts/sync-plugin-meta.mjs"
   },
   "dependencies": {
     "@jentrix/plugin-claude": "workspace:*",
@@ -77,5 +79,18 @@
     "esbuild": "^0.28.1",
     "tsx": "^4.22.3",
     "typescript": "^5"
+  },
+  "jentrix": {
+    "behaviorRevision": "2026.09.13-2",
+    "semanticSchemaRevision": 1,
+    "hosts": [
+      "claude",
+      "codex"
+    ],
+    "plannedHosts": [
+      "opencode",
+      "pi"
+    ],
+    "serverApiRange": "^1.4.0"
   }
 }

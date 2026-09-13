@@ -86,14 +86,24 @@ the plan, when a long investigation resolves, or before handing the work over.
    answer says no local activity skeleton exists, say THAT — "never opened" by
    absence is not the same claim as "never opened" by evidence.
 
-5. Push it — as an ARTIFACT, never as a comment. A "Checkpoint" posted as a
-   comment is not a checkpoint: the summary counts REPORTs titled
-   `Checkpoint — …` and prints `checkpoints: N`, and a comment counts zero.
-   - `jentrix push learning --title "Checkpoint — <topic>"` when it is durable
-     knowledge worth carrying past this work;
-   - `jentrix push report --title "Checkpoint — <topic>"` when it is the
+5. Push it — as an ARTIFACT, never as a comment, and **with the boundary
+   named**. A "Checkpoint" posted as a comment is not a checkpoint, and a
+   report merely TITLED "Checkpoint" is indexed by its title, which is a
+   guess; `--checkpoint <boundary>` writes the semantic header the summary
+   indexes (`checkpoints: N`) and answers the request the `PreCompact` hook
+   left in the spool. Boundaries: `compaction` · `handoff` · `intent-change`
+   · `task-switch` · `investigation-resolved` · `manual`.
+   - `jentrix push learning --checkpoint <boundary> --title "Checkpoint — <topic>"`
+     when it is durable knowledge worth carrying past this work;
+   - `jentrix push report --checkpoint <boundary> --intent "<current intent>"
+     --next "<next action>" --title "Checkpoint — <topic>"` when it is the
      state of THIS work.
-   Content goes on stdin.
+   Content goes on stdin. When `jentrix session status` says
+   `Checkpoint requested: compaction …` and the compaction changed nothing
+   worth writing, say so instead of writing filler:
+   `jentrix push report --checkpoint none-occurred --title "Checkpoint — nothing changed"`
+   with a one-line body. A hook cannot distil (no model turn); leaving the
+   request unanswered is what makes `session end` print it at the close.
 6. Relay the returned `artifactId` to the operator, and say which kind you
    chose and why.
 7. If the session's task status no longer matches reality, fix it now:
@@ -148,3 +158,15 @@ labels. Read actual board columns before moving tasks. Work goes into its
 working column; completed work goes to In review. Accept/Return and terminal
 completion belong to the operator. Typed artifacts and completed verification
 commands provide evidence; a report alone does not prove work is finished.
+
+Records carry their meaning in a header, not a title. `jentrix push report
+--final` is the explicit final deliverable; `--checkpoint <boundary>` is a
+semantic checkpoint (answer a `Checkpoint requested:` line from `session
+status` — a hook cannot distil, only a model turn can); `push log --from-cmd`
+is a verification receipt that counts only for a gate bound to a package
+script, a known runner or a reviewed wrapper, run from the checkout root as one
+plain `&&`-chained line of literal arguments (no `||`/`|`/`;`, no `cd`, no
+help/version flags, no `$VAR` expansion outside single quotes, no second line
+after a `#` comment), at exit 0, on the revision and working tree the session
+closes on.
+What the host records on its own is provisional and says so.
