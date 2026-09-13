@@ -9,6 +9,12 @@ publish authority.
 
 ## Before you start
 
+For the integration model and development workflow, read
+[Creating and using AI agent plugins](./agent-plugins.md) and
+[Testing AI agent plugins](./agent-plugin-testing.md). These root-level guides
+also appear in the hosted documentation under Agents & MCP. Update both copies
+in the same change; private service maintenance notes stay in the service repo.
+
 - **Bugs** — open an issue with the bug template. Say which layer you think
   is at fault (service, CLI, official plugin, custom plugin); `jentrix session
   doctor` reports versions, install source, marketplace ownership, hook

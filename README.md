@@ -98,6 +98,9 @@ How versions, digests, drift and the 180/90-day support window work:
 
 ## Documentation
 
+- [Creating and using AI agent plugins](./agent-plugins.md) — the M1 baseline, custom workflows, host adapters, session evidence and shared infrastructure
+- [Testing AI agent plugins](./agent-plugin-testing.md) — deterministic checks, exact-package trials, installation, recovery and handoff evidence
+
 - [Compatibility and lifecycle](./docs/compatibility.md) — the four version domains, the six-step connection order, the support window
 - [Hooks and the trust model](./docs/hooks-security.md) — what the hooks do, the absolute-path pin, the provider's trust step
 - [Writing a Claude Code plugin for Jentrix](./docs/authoring-claude.md) · [Writing a Codex plugin for Jentrix](./docs/authoring-codex.md) — from a minimal `acme-jentrix` to distribution
