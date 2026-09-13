@@ -26,6 +26,8 @@ describe("Codex lifecycle hook mapping", () => {
         {
           kind: "tool_result",
           payload: { name: "shell", result: { exit_code: 0 } },
+          // R05: the outcome is a COMMON field read off the exit code.
+          outcome: "ok",
         },
       ],
     );

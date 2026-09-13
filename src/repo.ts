@@ -7,6 +7,9 @@
  */
 
 import { execFile } from "node:child_process";
+import { createHash, type Hash } from "node:crypto";
+import { createReadStream, statSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Normalize a git remote URL to a lowercase `owner/name`, or null when it is
@@ -41,14 +44,21 @@ export function normalizeRemoteRepo(url: string): string | null {
 export type GitRunner = (
   args: string[],
   cwd: string,
+  /** Larger output/time bounds for a call whose output must be COMPLETE (the tree digest). */
+  opts?: { maxBuffer?: number; timeoutMs?: number },
 ) => Promise<{ code: number; stdout: string }>;
 
-export const defaultGitRunner: GitRunner = (args, cwd) =>
+export const defaultGitRunner: GitRunner = (args, cwd, opts) =>
   new Promise((resolve) => {
     execFile(
       "git",
       args,
-      { cwd, timeout: 10_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+      {
+        cwd,
+        timeout: opts?.timeoutMs ?? 10_000,
+        maxBuffer: opts?.maxBuffer ?? 4 * 1024 * 1024,
+        windowsHide: true,
+      },
       (error, stdout) => {
         resolve({
           code:
@@ -132,4 +142,90 @@ export async function inspectRepository(
     head: head.code === 0 ? head.stdout.trim() || null : null,
     dirty: status.code === 0 && status.stdout.trim().length > 0,
   };
+}
+
+/** The dirty digest is EXACT or UNKNOWN: these bounds turn a tree into "unknown", never into an approximation. */
+export const DIRTY_DIGEST_LIMITS = {
+  /** `git diff HEAD` output the runner may hold (bytes). */
+  diffBytes: 256 * 1024 * 1024,
+  /** Untracked files hashed before the tree is declared unknown. */
+  untrackedFiles: 5000,
+  /** Untracked bytes hashed before the tree is declared unknown. */
+  untrackedBytes: 512 * 1024 * 1024,
+};
+
+export interface DirtyDigestOptions {
+  /** Injectable reader (tests): the file's bytes, or null when unreadable. */
+  readFile?: (path: string) => Buffer | null;
+  limits?: Partial<typeof DIRTY_DIGEST_LIMITS>;
+}
+
+/** Stream one file's bytes into the hash without holding it in memory. */
+async function hashFileInto(hash: Hash, path: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", () => resolve(false));
+    stream.on("end", () => resolve(true));
+  });
+}
+
+/**
+ * R03 / F02b — the SCOPED dirty-state digest: sha256 over `git status
+ * --porcelain`, the COMPLETE `git diff HEAD`, and the COMPLETE contents of
+ * every untracked file. Two checkouts at the same revision with different
+ * uncommitted content get different digests, so a receipt taken before an
+ * edit cannot cover a claim made after it. The 2026-09-13 review showed the
+ * earlier bounded version hashing only a large file's SIZE — a byte-for-byte
+ * different file then bound the same digest. Now the digest is EXACT or it is
+ * `null` (unknown): an unreadable checkout, a diff the runner could not hold,
+ * more untracked files or bytes than the limits, or an unreadable untracked
+ * file each return null, and the evidence floor binds nothing to unknown.
+ */
+export async function scopedDirtyDigest(
+  git: GitRunner,
+  root: string,
+  options: DirtyDigestOptions | ((path: string) => Buffer | null) = {},
+): Promise<string | null> {
+  const opts: DirtyDigestOptions = typeof options === "function" ? { readFile: options } : options;
+  const limits = { ...DIRTY_DIGEST_LIMITS, ...(opts.limits ?? {}) };
+  const status = await git(["status", "--porcelain", "--untracked-files=all"], root);
+  if (status.code !== 0) return null;
+  const hash = createHash("sha256");
+  hash.update(status.stdout);
+  hash.update("\0");
+  const diff = await git(["diff", "HEAD"], root, { maxBuffer: limits.diffBytes, timeoutMs: 120_000 });
+  if (diff.code !== 0) return null;
+  if (Buffer.byteLength(diff.stdout, "utf8") > limits.diffBytes) return null;
+  hash.update(diff.stdout);
+  hash.update("\0");
+  let files = 0;
+  let bytes = 0;
+  for (const line of status.stdout.split("\n")) {
+    if (!line.startsWith("?? ")) continue;
+    if (++files > limits.untrackedFiles) return null;
+    const path = line.slice(3).trim();
+    const abs = join(root, path);
+    hash.update(path);
+    hash.update("\0");
+    if (opts.readFile) {
+      const content = opts.readFile(abs);
+      if (!content) return null;
+      bytes += content.byteLength;
+      if (bytes > limits.untrackedBytes) return null;
+      hash.update(content);
+    } else {
+      let size: number;
+      try {
+        size = statSync(abs).size;
+      } catch {
+        return null;
+      }
+      bytes += size;
+      if (bytes > limits.untrackedBytes) return null;
+      if (!(await hashFileInto(hash, abs))) return null;
+    }
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }

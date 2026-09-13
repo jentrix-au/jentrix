@@ -3,6 +3,7 @@ import { type SessionAlignFlags, type SessionCommandDeps } from "./deps";
 import {
   readClaudeHookContext,
   readCodexHookContext,
+  readCurrentProviderHookContext,
   readClaudeHookTranscript,
   readCodexRolloutPath,
   hooksDir,
@@ -75,17 +76,28 @@ export async function runSessionAlign(
     let providerSessionId = flags.providerSession ?? null;
     let transcriptPath = flags.transcriptPath ?? null;
     if (!providerSessionId) {
-      const claude = provider !== "codex" ? readClaudeHookContext(deps) : null;
-      if (claude) {
-        provider = "claude";
-        providerSessionId = claude.sessionId;
-        transcriptPath = transcriptPath ?? claude.transcriptPath ?? null;
-      } else if (provider !== "claude") {
-        const codex = readCodexHookContext(deps);
-        if (codex) {
-          provider = "codex";
-          providerSessionId = codex.sessionId;
-          transcriptPath = transcriptPath ?? codex.transcriptPath ?? null;
+      if (provider) {
+        // The operator named the host: read that host's context only.
+        const context =
+          provider === "claude"
+            ? readClaudeHookContext(deps)
+            : readCodexHookContext(deps);
+        if (context) {
+          providerSessionId = context.sessionId;
+          transcriptPath = transcriptPath ?? context.transcriptPath ?? null;
+        }
+      } else {
+        // JEN-536 (M1 Codex trial): the implicit form goes through the SAME
+        // resolver `push` and `end` use, so a process that both Codex and
+        // Claude identify (a nested host inheriting the parent's env) refuses
+        // PROVIDER_SESSION_AMBIGUOUS instead of quietly taking Claude first —
+        // which aligned a foreign session and spawned a host on the parent
+        // transcript.
+        const context = readCurrentProviderHookContext(deps);
+        if (context) {
+          provider = context.provider;
+          providerSessionId = context.sessionId;
+          transcriptPath = transcriptPath ?? context.transcriptPath ?? null;
         }
       }
     } else if (provider === "claude" && !transcriptPath) {

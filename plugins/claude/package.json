@@ -31,5 +31,12 @@
   },
   "scripts": {
     "prepack": "node ../../scripts/generate-workflows.mjs --check"
+  },
+  "jentrix": {
+    "host": "claude",
+    "behaviorRevision": "2026.09.13-1",
+    "semanticSchemaRevision": 1,
+    "resourceDigest": "8aabd5a6c3cfcddf1ba6772c64594a4ef6433a7a68dc9afbada8fc73d5b36ff3",
+    "cliRange": ">=0.10.1 <1.0.0"
   }
 }

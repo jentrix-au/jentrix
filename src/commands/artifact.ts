@@ -83,37 +83,63 @@ function statusToExit(status: number): number {
   return EXIT_CODES.INTERNAL;
 }
 
-export async function runArtifactAttach(
+/** A failed upload step, with the exit code the CLI surface maps it to. */
+export class ArtifactAttachError extends Error {
+  constructor(
+    message: string,
+    public readonly exitCode: number,
+  ) {
+    super(message);
+    this.name = "ArtifactAttachError";
+  }
+}
+
+export interface AttachedFile {
+  artifactId: string;
+  type: string;
+  title: string;
+  filename: string;
+  mimeType: string;
+  byteSize: number;
+  checksum: string;
+}
+
+/**
+ * R04 — the upload core as a FUNCTION (grant → PUT → attach_artifact), so the
+ * output manifest can register many files through the SAME path the single
+ * `artifact upload` command uses: bytes preserved, sha256-bound, MIME from
+ * the extension, never a UTF-8 Markdown coercion. Throws
+ * {@link ArtifactAttachError}; prints nothing.
+ */
+export async function attachFile(
   filePath: string,
   flags: ArtifactAttachFlags,
   deps: ArtifactCommandDeps,
-): Promise<number> {
-  // A task names its own workspace — the grant route resolves it and hands it
-  // back, so `--task` alone is enough (mvp-hardening Slice 7 / AC7).
+): Promise<AttachedFile> {
   if (!flags.workspace && !flags.task) {
-    deps.writeErr(
+    throw new ArtifactAttachError(
       "--workspace <id> is required (or --task <id> to resolve it)",
+      EXIT_CODES.INVALID_INPUT,
     );
-    return EXIT_CODES.INVALID_INPUT;
   }
   if (flags.kind && !(PUSH_KINDS as readonly string[]).includes(flags.kind)) {
-    deps.writeErr(
+    throw new ArtifactAttachError(
       `unknown kind "${flags.kind}" — expected one of: ${PUSH_KINDS.join(", ")}`,
+      EXIT_CODES.INVALID_INPUT,
     );
-    return EXIT_CODES.INVALID_INPUT;
   }
   let body: Buffer;
   try {
     body = readFileSync(filePath);
   } catch {
-    deps.writeErr(`cannot read ${filePath} — pass a readable file path`);
-    return EXIT_CODES.INVALID_INPUT;
+    throw new ArtifactAttachError(
+      `cannot read ${filePath} — pass a readable file path`,
+      EXIT_CODES.INVALID_INPUT,
+    );
   }
   const ext = extname(filePath).toLowerCase();
   const filename = basename(filePath);
   const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
-  // --type stays the explicit escape hatch; --kind is the shared push
-  // vocabulary; the extension is the fallback.
   const type =
     flags.type ??
     (flags.kind ? ARTIFACT_TYPE_BY_PUSH_KIND[flags.kind as PushKind] : null) ??
@@ -126,13 +152,13 @@ export async function runArtifactAttach(
   try {
     target = deps.resolveTarget();
   } catch (error) {
-    deps.writeErr(error instanceof Error ? error.message : String(error));
-    return EXIT_CODES.TRANSPORT;
+    throw new ArtifactAttachError(
+      error instanceof Error ? error.message : String(error),
+      EXIT_CODES.TRANSPORT,
+    );
   }
   const origin = new URL(target.url).origin;
 
-  // 1. Server-issued grant: the server chooses the object key; the grant is
-  //    single-use and bound to workspace + checksum + MIME + size + expiry.
   let grant: { uploadGrantId: string; uploadUrl: string; workspaceId: string };
   try {
     const response = await fetchImpl(
@@ -158,10 +184,10 @@ export async function runArtifactAttach(
         error?: string;
         detail?: string;
       };
-      deps.writeErr(
+      throw new ArtifactAttachError(
         `upload grant refused (HTTP ${response.status}): ${detail.detail ?? detail.error ?? "unknown error"}`,
+        statusToExit(response.status),
       );
-      return statusToExit(response.status);
     }
     const parsed = (await response.json()) as {
       uploadGrantId?: string;
@@ -170,10 +196,10 @@ export async function runArtifactAttach(
     };
     const workspaceId = flags.workspace ?? parsed.workspaceId;
     if (!parsed.uploadGrantId || !parsed.uploadUrl || !workspaceId) {
-      deps.writeErr(
+      throw new ArtifactAttachError(
         "upload grant response is missing uploadGrantId/uploadUrl/workspaceId",
+        EXIT_CODES.INTERNAL,
       );
-      return EXIT_CODES.INTERNAL;
     }
     grant = {
       uploadGrantId: parsed.uploadGrantId,
@@ -181,13 +207,13 @@ export async function runArtifactAttach(
       workspaceId,
     };
   } catch (error) {
-    deps.writeErr(
+    if (error instanceof ArtifactAttachError) throw error;
+    throw new ArtifactAttachError(
       `upload grant request failed: ${error instanceof Error ? error.message : String(error)}`,
+      EXIT_CODES.TRANSPORT,
     );
-    return EXIT_CODES.TRANSPORT;
   }
 
-  // 2. PUT the bytes to the presigned URL. A failed upload attaches nothing.
   try {
     const put = await fetchImpl(grant.uploadUrl, {
       method: "PUT",
@@ -195,19 +221,19 @@ export async function runArtifactAttach(
       body: new Uint8Array(body),
     });
     if (!put.ok) {
-      deps.writeErr(
+      throw new ArtifactAttachError(
         `upload failed (HTTP ${put.status}) — the grant expires unused; retry the command`,
+        EXIT_CODES.INTERNAL,
       );
-      return EXIT_CODES.INTERNAL;
     }
   } catch (error) {
-    deps.writeErr(
+    if (error instanceof ArtifactAttachError) throw error;
+    throw new ArtifactAttachError(
       `upload failed: ${error instanceof Error ? error.message : String(error)} — the grant expires unused; retry the command`,
+      EXIT_CODES.TRANSPORT,
     );
-    return EXIT_CODES.TRANSPORT;
   }
 
-  // 3. attach_artifact consumes the grant and creates the linked record.
   try {
     const { caller, close } = await deps.connect(target);
     try {
@@ -226,30 +252,50 @@ export async function runArtifactAttach(
         ...(flags.run ? { runId: flags.run } : {}),
         ...(flags.workOrder ? { workOrderId: flags.workOrder } : {}),
         ...(flags.decision ? { decisionId: flags.decision } : {}),
-        // AC13: keep the session attribution when the operator names one.
         ...(flags.session ? { sessionId: flags.session } : {}),
-        // Unique per grant: protects a transport retry of THIS invocation
-        // without colliding with a deliberate re-attach of the same file.
         idempotencyKey: `cli-artifact:${grant.uploadGrantId}`,
       });
       const artifact = (result.artifact ?? {}) as Record<string, unknown>;
-      deps.writeOut(
-        flags.json
-          ? // The id at the top level: every other artifact-producing command
-            // answers `artifactId`, and a caller should not have to know which
-            // envelope this one came in.
-            JSON.stringify({ artifactId: artifact.id ?? null, ...result })
-          : `Attached artifact ${String(artifact.id ?? "?")} · ${String(artifact.title ?? filename)} (${type}, ${body.byteLength} bytes)`,
-      );
-      return 0;
+      return {
+        artifactId: String(artifact.id ?? ""),
+        type,
+        title: String(artifact.title ?? flags.title ?? filename),
+        filename,
+        mimeType,
+        byteSize: body.byteLength,
+        checksum,
+      };
     } finally {
       await close().catch(() => undefined);
     }
   } catch (error) {
-    deps.writeErr(
+    if (error instanceof ArtifactAttachError) throw error;
+    throw new ArtifactAttachError(
       `attach_artifact failed: ${error instanceof Error ? error.message : String(error)} — the uploaded object is unreferenced until the grant expires`,
+      EXIT_CODES.INTERNAL,
     );
-    return EXIT_CODES.INTERNAL;
+  }
+}
+
+export async function runArtifactAttach(
+  filePath: string,
+  flags: ArtifactAttachFlags,
+  deps: ArtifactCommandDeps,
+): Promise<number> {
+  try {
+    const attached = await attachFile(filePath, flags, deps);
+    deps.writeOut(
+      flags.json
+        ? JSON.stringify({ artifactId: attached.artifactId || null, artifact: attached })
+        : `Attached artifact ${attached.artifactId || "?"} · ${attached.title} (${attached.type}, ${attached.byteSize} bytes)`,
+    );
+    return 0;
+  } catch (error) {
+    if (error instanceof ArtifactAttachError) {
+      deps.writeErr(error.message);
+      return error.exitCode;
+    }
+    throw error;
   }
 }
 

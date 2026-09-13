@@ -244,10 +244,16 @@ test("watch host: growing transcript → spool → end request → honest comple
     "second transcript line spooled",
   );
 
-  // `jentrix session end` hands the live host the end request.
+  // `jentrix session end` hands the live host the end request — with the
+  // tree binding (F02): the CLI's digest and the preserved patch's id.
   writeFileSync(
     join(sessionDir, "end-request.json"),
-    JSON.stringify({ requestedAt: new Date().toISOString() }),
+    JSON.stringify({
+      requestedAt: new Date().toISOString(),
+      endDirty: true,
+      endTreeDigest: "req-digest",
+      uncommittedPatchArtifactId: "art_patch",
+    }),
     { mode: 0o600 },
   );
   const exitCode = await hostPromise;
@@ -283,6 +289,14 @@ test("watch host: growing transcript → spool → end request → honest comple
   };
   assert.ok(manifest.parts.length >= 1, "manifest names the acked parts");
   assert.equal(complete!.args.captureError, null);
+  // F02: the host's close carries the patch id from the request and a tree
+  // digest — its own when the checkout is readable, else the CLI's.
+  assert.equal(complete!.args.uncommittedPatchArtifactId, "art_patch");
+  assert.ok(
+    complete!.args.endTreeDigest === "req-digest" ||
+      /^[0-9a-f]{64}$/.test(String(complete!.args.endTreeDigest)),
+    `endTreeDigest bound: ${String(complete!.args.endTreeDigest)}`,
+  );
 });
 
 test("default watch capture starts AT the attach point — history needs importHistory", async () => {

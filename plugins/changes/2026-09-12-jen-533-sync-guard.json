@@ -1,0 +1,61 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-12-jen-533-sync-guard",
+  "issue": "JEN-533",
+  "title": "S0a \u2014 the permanent plugin synchronization guard (registry, impact records, check:plugin-sync, package metadata, doctor revision check)",
+  "behaviors": [
+    "P15",
+    "P16"
+  ],
+  "base": {
+    "revision": "c795940179214c991ce1d4079e4752a097c5a55d"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "CONTRIBUTING.md",
+    "docs/plugin-sync.md",
+    "package.json",
+    "plugins/changes/",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/registry.json",
+    "scripts/check-plugin-sync.mjs",
+    "scripts/generate-workflows.mjs",
+    "scripts/sync-plugin-meta.mjs",
+    "src/commands/doctor-client.ts",
+    "test/doctor-client.test.ts",
+    "test/plugin-sync-conformance.test.ts",
+    "test/plugin-sync.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/plugin-sync.test.ts",
+        "test/plugin-parity.test.ts",
+        "test/pack-smoke.test.ts"
+      ]
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/plugin-sync.test.ts",
+        "test/plugin-parity.test.ts",
+        "test/pack-smoke.test.ts"
+      ]
+    },
+    "opencode": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    },
+    "pi": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    }
+  }
+}

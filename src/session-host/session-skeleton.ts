@@ -18,6 +18,13 @@ export const MAX_SKELETON_BYTES = 32 * 1024;
 /** Caps that keep the accumulator itself bounded on a very long session. */
 const MAX_DISTINCT_TOOLS = 100;
 const MAX_TRACKED_FILES = 300;
+/**
+ * R06: past MAX_TRACKED_FILES the PATHS are dropped from the list but their
+ * IDENTITY is kept (bounded) so a repeat is never counted as a new distinct
+ * file — the audit probe saw 301 actual paths reported as 310. Beyond this
+ * second cap the total becomes a declared floor (`totalExact: false`).
+ */
+const MAX_OVERFLOW_IDENTITIES = 10_000;
 const MAX_HOURLY_BUCKETS = 500;
 const MAX_PATH_CHARS = 300;
 
@@ -41,8 +48,15 @@ export interface ActivitySkeleton {
   /** Tool-call counts by tool NAME (never arguments). */
   toolCounts: Record<string, number>;
   filesTouched: {
-    /** Distinct paths observed — exact even when the list below is capped. */
+    /** Distinct paths observed — exact while `totalExact` is true. */
     total: number;
+    /**
+     * R06: whether `total` is an exact distinct count. False only past the
+     * overflow-identity cap (a very long session), where repeats of a path
+     * beyond the retained list can no longer be told from new ones and the
+     * count is a declared floor.
+     */
+    totalExact: boolean;
     paths: string[];
     listTruncated?: true;
   };
@@ -75,7 +89,9 @@ const PATH_KEYS = ["file_path", "path", "notebook_path", "filePath"] as const;
  * contact, never a proof of it.
  */
 const SHELL_SPLIT = /[\s;|&<>()'"`]+/;
-const PATH_TOKEN = /^[\w.@~+-][\w./@~+-]*\/[\w./@~+-]*\.[A-Za-z][\w]{0,9}$/;
+// R06: a leading "/" is a path too — `cat /Users/x/repo/src/a.ts` used to yield
+// zero files while `cat src/a.ts` yielded one (JEN-528 finding 6).
+const PATH_TOKEN = /^\/?[\w.@~+-][\w./@~+-]*\/[\w./@~+-]*\.[A-Za-z][\w]{0,9}$/;
 
 export function bashPathTokens(command: string): string[] {
   const found: string[] = [];
@@ -106,7 +122,9 @@ export class SessionSkeleton {
   private readonly eventCounts = new Map<string, number>();
   private readonly toolCounts = new Map<string, number>();
   private readonly files = new Set<string>();
-  private filesOverflow = 0;
+  /** R06: distinct paths seen past the list cap — identity only, no list. */
+  private readonly overflowFiles = new Set<string>();
+  private overflowUncounted = false;
   private readonly hourly = new Map<string, number>();
   private coalesced = false;
 
@@ -168,11 +186,14 @@ export class SessionSkeleton {
           const path = pathOf(fields[key]);
           if (path) this.touch(path);
         }
-        // D11: …and the path-shaped tokens of a shell command.
-        if (typeof fields.command === "string") {
-          for (const token of bashPathTokens(fields.command)) {
-            const path = pathOf(token);
-            if (path) this.touch(path);
+        // D11: …and the path-shaped tokens of a shell command. R06: Codex's
+        // shell tool names the field `cmd`; both spellings are read.
+        for (const key of ["command", "cmd"] as const) {
+          if (typeof fields[key] === "string") {
+            for (const token of bashPathTokens(fields[key] as string)) {
+              const path = pathOf(token);
+              if (path) this.touch(path);
+            }
           }
         }
       }
@@ -194,10 +215,14 @@ export class SessionSkeleton {
   }
 
   private touch(path: string): void {
-    if (this.files.has(path)) return;
+    if (this.files.has(path) || this.overflowFiles.has(path)) return;
     if (this.files.size >= MAX_TRACKED_FILES) {
-      this.filesOverflow += 1;
       this.coalesced = true;
+      if (this.overflowFiles.size >= MAX_OVERFLOW_IDENTITIES) {
+        this.overflowUncounted = true; // the total is a floor from here on
+        return;
+      }
+      this.overflowFiles.add(path);
       return;
     }
     this.files.add(path);
@@ -219,7 +244,8 @@ export class SessionSkeleton {
       eventCounts: Object.fromEntries(this.eventCounts),
       toolCounts: Object.fromEntries(this.toolCounts),
       filesTouched: {
-        total: this.files.size + this.filesOverflow,
+        total: this.files.size + this.overflowFiles.size,
+        totalExact: !this.overflowUncounted,
         paths,
         ...(listTruncated ? { listTruncated: true as const } : {}),
       },
@@ -227,7 +253,7 @@ export class SessionSkeleton {
       ...(this.coalesced || listTruncated ? { truncated: true as const } : {}),
     });
     let paths = [...this.files];
-    let listTruncated = this.filesOverflow > 0;
+    let listTruncated = this.overflowFiles.size > 0 || this.overflowUncounted;
     let skeleton = build(paths, listTruncated);
     while (
       Buffer.byteLength(JSON.stringify(skeleton), "utf8") >

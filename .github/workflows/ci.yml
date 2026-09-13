@@ -29,6 +29,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The plugin-sync guard derives its impact scope from merge-base→candidate.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v6
 
@@ -60,6 +63,19 @@ jobs:
       # its own plugin (no provider binary needed).
       - name: Validate the reference extensions
         run: pnpm validate:examples
+
+      # The permanent plugin synchronization guard (plugin-sync G01–G07): one
+      # registry of official hosts, an impact record for every plugin-relevant
+      # change with a disposition for EVERY official host, executable
+      # conformance through every enrolled adapter, and package metadata that
+      # pins the shared behaviour revision. Required on every PR and push; the
+      # negative cases live in test/plugin-sync.test.ts and run under `pnpm
+      # test` above.
+      - name: Plugin synchronization guard
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="origin/main"; fi
+          pnpm check:plugin-sync --base "$base"
 
       # Contract drift is INFORMATIONAL (PRD §5.4, D5): the production
       # deployment may serve a newer digest than this tree adopted, and that is

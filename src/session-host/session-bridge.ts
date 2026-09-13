@@ -11,11 +11,13 @@
  * retry) run with zero real sockets.
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { withRateLimitRetry } from "../retry.js";
 
+import { withSemanticHeader } from "./semantic-header.js";
 import type { SessionEvent, SessionEventKind } from "./session-events.js";
 import { serializeSessionEvent } from "./session-events.js";
 import type { SessionRedactor } from "./session-redact.js";
@@ -192,6 +194,95 @@ export interface CapabilitySnapshot {
   /** Event classes this provider/mode can emit; the rest are not_observable. */
   observable: SessionEventKind[];
   notObservable: SessionEventKind[];
+  /**
+   * R05 — input/identity classes this adapter does NOT expose even when the
+   * host does (e.g. Codex hooks carry no image attachments, no child-session
+   * traversal). Named here so the coverage report can say "unsupported"
+   * instead of nothing.
+   */
+  unsupported?: string[];
+}
+
+/**
+ * R01 — what the host currently holds as the session's closing output, and
+ * WHY it is or is not a turn-closing answer. The host never certifies an
+ * explicit final deliverable; that is `jentrix push report --final`. Here
+ * `state` is always "provisional" — the field exists so a reader compares it
+ * with the explicit final's "final" rather than inferring from a title.
+ */
+export interface FinalOutputState {
+  state: "provisional";
+  /** True when the message closed its turn (no tool calls followed it). */
+  turnClosing: boolean;
+  /** Why it is NOT turn-closing, when it is not. */
+  reason?: string;
+  messageId?: string;
+  turnId?: string;
+  sequence: number;
+  observedAt: string;
+  /** sha256 over the redacted text — the identity a retry converges on. */
+  checksum: string;
+}
+
+/** R01 — the durable delivery record for the host's provisional final output. */
+export interface FinalOutputRecord {
+  attemptId: string;
+  messageId: string | null;
+  turnId: string | null;
+  sequence: number;
+  checksum: string;
+  /**
+   * F03 (2026-09-12 review) — the REDACTED output itself, so a host process
+   * started over this spool after a crash or a lost acknowledgement can
+   * retry the SAME attempt without the in-memory message. Absent on records
+   * written before the fix (those cannot be retried, and say so).
+   */
+  message?: {
+    text: string;
+    at: string;
+    sequence: number;
+    toolCalls: number;
+    messageId?: string;
+    turnId?: string;
+  };
+  /**
+   * F03 (2026-09-13 review) — the EXACT serialized upload payload of this
+   * attempt. A retry of an unfinished attempt re-sends these bytes verbatim
+   * (same attempt id, same `supersedes`, same header), so the server's
+   * content dedupe converges on one row; recomputing the payload on retry
+   * dropped the predecessor and changed the bytes under the same attempt id.
+   */
+  body?: string;
+  delivery: "pending" | "acked" | "failed" | "final-exists";
+  artifactId: string | null;
+  /** The previously acked artifact this attempt replaces, when content changed. */
+  supersedes: string | null;
+  reason: string | null;
+  updatedAt: string;
+  attempts: Array<{ attemptId: string; checksum: string; delivery: string; artifactId: string | null; at: string }>;
+}
+
+export interface FinalOutputDelivery {
+  artifactId: string | null;
+  attemptId: string | null;
+  /**
+   * acked — uploaded now; reused — the same message was acked earlier (a
+   * refused-close retry); final-exists — the agent pushed an explicit final,
+   * which is the current output; failed — upload failed (spool keeps the
+   * pending record); none — no assistant text was observed.
+   */
+  delivery: "acked" | "reused" | "final-exists" | "failed" | "none";
+  reason?: string;
+  supersedes?: string | null;
+}
+
+/** R05 — what this session's capture did and did not cover, by class. */
+export interface CoverageReport {
+  observed: string[];
+  unsupported: string[];
+  omittedByConsent: string[];
+  truncated: string[];
+  failed: string[];
 }
 
 export class SessionBridge {
@@ -239,7 +330,16 @@ export class SessionBridge {
     sequence: number;
     /** D12: the API message these blocks belong to, when the mapper named one. */
     messageId?: string;
+    /** R01/R05: the provider turn, when the mapper named one (Codex Stop). */
+    turnId?: string;
+    /** R01: tool calls this message made — a message that calls tools is mid-turn. */
+    toolCalls: number;
   } | null = null;
+  /** R05 — event kinds actually observed, for the coverage report. */
+  private readonly observedKinds = new Set<string>();
+  /** R05/R07 — named truncations and failures the coverage report lists. */
+  private readonly truncations = new Set<string>();
+  private readonly failures = new Set<string>();
   /**
    * Session evidence floor (PRD §4): the v1 activity skeleton, accumulated
    * from every REDACTED event this bridge records — capture-off included —
@@ -357,6 +457,12 @@ export class SessionBridge {
         ? { providerEventId: event.providerEventId }
         : {}),
       kind: event.kind,
+      // R05: the common identity/outcome/attachment fields ride the envelope
+      // (ids are opaque tokens; attachments carry a kind and media type, never
+      // bytes — nothing here needs the redactor, and the payload still gets it).
+      ...(event.ids && Object.keys(event.ids).length ? { ids: event.ids } : {}),
+      ...(event.outcome ? { outcome: event.outcome } : {}),
+      ...(event.attachments?.length ? { attachments: event.attachments } : {}),
       payload: this.deps.redactor.value(event.payload),
     };
     if (this.deps.traceCapture !== false) {
@@ -368,6 +474,7 @@ export class SessionBridge {
     // counts/names/paths only, independent of whether anything was spooled.
     this.skeleton?.observe(full);
     this.persistSkeletonSnapshot();
+    this.observedKinds.add(full.kind);
     if (full.kind === "assistant_message") {
       // Read off the REDACTED payload, so the text kept here has already been
       // through the local pass — exactly like a spooled part.
@@ -376,7 +483,8 @@ export class SessionBridge {
       const messageId =
         typeof rawMessageId === "string" && rawMessageId.trim()
           ? rawMessageId.trim()
-          : undefined;
+          : (full.ids?.messageId ?? undefined);
+      const turnId = full.ids?.turnId;
       if (typeof text === "string" && text.trim().length > 0) {
         // JEN-494 (D12/G4): a streamed message is written as one transcript
         // entry per content block, so keeping "the last assistant_message"
@@ -393,7 +501,21 @@ export class SessionBridge {
           at: full.at,
           sequence: full.sequence,
           ...(messageId ? { messageId } : {}),
+          ...(turnId ? { turnId } : {}),
+          toolCalls: continues ? this.lastAssistantMessage!.toolCalls : 0,
         };
+      }
+    }
+    if (full.kind === "tool_call") {
+      // R01: a tool call made by the message we hold marks it MID-TURN — the
+      // audit's "Now the card comments naming commit, test and before/after."
+      // was exactly such a message, filed as a final response.
+      const messageId = full.ids?.messageId;
+      if (
+        messageId &&
+        this.lastAssistantMessage?.messageId === messageId
+      ) {
+        this.lastAssistantMessage.toolCalls += 1;
       }
     }
     if (full.kind === "usage") {
@@ -881,31 +1003,197 @@ export class SessionBridge {
   }
 
   /**
-   * AGE-649 — push the session's FINAL RESPONSE as a typed artifact.
+   * R01 — the host's view of the closing output: WHICH message, whether it
+   * closed its turn, and the identity a retry converges on. Null when no
+   * assistant text was observed.
+   */
+  finalOutputState(): FinalOutputState | null {
+    return this.finalOutputStateOf(this.lastAssistantMessage);
+  }
+
+  private finalOutputStateOf(
+    last: NonNullable<FinalOutputRecord["message"]> | null,
+  ): FinalOutputState | null {
+    if (!last) return null;
+    const turnClosing = last.toolCalls === 0;
+    return {
+      state: "provisional",
+      turnClosing,
+      ...(turnClosing
+        ? {}
+        : {
+            reason: `the last observed assistant message made ${last.toolCalls} tool call(s) — a mid-turn progress note, not a turn-closing answer`,
+          }),
+      ...(last.messageId ? { messageId: last.messageId } : {}),
+      ...(last.turnId ? { turnId: last.turnId } : {}),
+      sequence: last.sequence,
+      observedAt: last.at,
+      checksum: createHash("sha256").update(last.text, "utf8").digest("hex"),
+    };
+  }
+
+  private finalOutputPath(): string {
+    return join(this.deps.spool.directory, "final-output.json");
+  }
+
+  private readFinalOutputRecord(): FinalOutputRecord | null {
+    try {
+      const parsed = JSON.parse(readFileSync(this.finalOutputPath(), "utf8")) as FinalOutputRecord;
+      return parsed && typeof parsed.attemptId === "string" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * F03 — the durable write is REPORTED when it fails: the upload still
+   * proceeds (the output matters more than the record), but the close's
+   * coverage names a record that will not survive a restart, instead of the
+   * silence the review found.
+   */
+  private writeFinalOutputRecord(record: FinalOutputRecord): boolean {
+    try {
+      writeFileSync(this.finalOutputPath(), JSON.stringify(record), { mode: 0o600 });
+      return true;
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      this.failures.add(`final output record not durable (${why}) — a restarted host cannot retry this attempt`);
+      this.deps.log?.(`final response: the durable record could not be written (${why}) — uploading anyway; a restarted host will not be able to retry this attempt`);
+      return false;
+    }
+  }
+
+  /**
+   * AGE-649 / R01 — push the session's PROVISIONAL final output as a typed
+   * artifact, DURABLY.
    *
    * Why this exists: with TRACE capture off (the MVP default) a closed session
    * keeps its telemetry and its typed artifacts, and nothing at all holds what
    * the agent concluded. The RUN_SUMMARY cannot carry it — that document is a
    * deterministic server projection and model prose is banned from it (M20.1
    * AC31) — so the output lands as its own artifact, on the same typed-push
-   * boundary an operator's `jentrix push report` uses. One ingestion function,
-   * both redaction passes, checksum after redaction.
+   * boundary an operator's `jentrix push report` uses.
+   *
+   * R01 (JEN-528 finding 1) changed what it IS:
+   *   • it is labelled `state: provisional` in a semantic header that names
+   *     the provider message/turn identity and a finalization ATTEMPT id —
+   *     the host observes; only `jentrix push report --final` certifies;
+   *   • the pending→acked state lives in the spool (`final-output.json`)
+   *     BEFORE the upload, so a crash or network loss leaves a visible pending
+   *     record and a retry converges on the same attempt;
+   *   • a refused-close retry of the SAME message re-uses the acked artifact
+   *     (no second row); a CHANGED message uploads a replacement that names
+   *     its predecessor (`supersedes`), so at most one current output exists;
+   *   • an explicit final already on the session wins: the server answers
+   *     FINAL_OUTPUT_EXISTS and the host records that instead of competing.
    *
    * Ordering is load-bearing: `COMPLETED` is a SEALED status for typed pushes,
-   * so this runs BEFORE `complete_agent_session`, never after.
-   *
-   * Absence stays absence. A session where the host observed no assistant text
-   * (capture never bound, a Codex thread that only ran tools) gets NO artifact
-   * rather than an empty one — the same rule the usage rollup follows for
-   * tokens. Failure never fails the close: the artifact is a bonus record, and
-   * losing it must not cost the operator their session completion.
-   *
-   * @returns the artifact id, or null when there was nothing to push.
+   * so this runs BEFORE `complete_agent_session`, never after. Absence stays
+   * absence: no observed assistant text means NO artifact and a declared
+   * `missing` on the close — never an empty one.
    */
-  async pushFinalResponse(): Promise<string | null> {
-    const last = this.lastAssistantMessage;
-    if (!last) return null;
-    const body = this.finalResponseBody(last);
+  async pushFinalResponse(): Promise<FinalOutputDelivery> {
+    const prior = this.readFinalOutputRecord();
+    // F03: a host started over this spool holds no message in memory. The
+    // record IS the message then: an unfinished attempt (pending/failed —
+    // the upload never acked, or the ack was lost before the record settled)
+    // is retried with the SAME attempt id and the SAME bytes, so the server
+    // converges on one artifact; an acked attempt is simply reused.
+    let last = this.lastAssistantMessage;
+    if (!last && prior) {
+      if (prior.delivery === "acked" && prior.artifactId) {
+        return { artifactId: prior.artifactId, attemptId: prior.attemptId, delivery: "reused", supersedes: prior.supersedes };
+      }
+      if (prior.message && (prior.delivery === "pending" || prior.delivery === "failed")) {
+        last = prior.message;
+        this.deps.log?.(
+          `final response: retrying attempt ${prior.attemptId} from the durable record (delivery was ${prior.delivery})`,
+        );
+      } else if (prior.delivery === "pending" || prior.delivery === "failed") {
+        const reason = `attempt ${prior.attemptId} was ${prior.delivery} and its record carries no output text (written before the durable-body fix) — cannot retry`;
+        this.failures.add(`final output ${reason}`);
+        return { artifactId: null, attemptId: prior.attemptId, delivery: "failed", reason };
+      }
+    }
+    const state = this.finalOutputStateOf(last);
+    if (!state || !last) {
+      return { artifactId: null, attemptId: null, delivery: "none", reason: "no assistant text was observed by the host" };
+    }
+    if (prior && prior.checksum === state.checksum) {
+      if (prior.delivery === "acked" && prior.artifactId) {
+        return { artifactId: prior.artifactId, attemptId: prior.attemptId, delivery: "reused", supersedes: prior.supersedes };
+      }
+      if (prior.delivery === "final-exists" && prior.artifactId) {
+        return { artifactId: prior.artifactId, attemptId: prior.attemptId, delivery: "final-exists" };
+      }
+    }
+    const sameAttempt = prior && prior.checksum === state.checksum && (prior.delivery === "pending" || prior.delivery === "failed");
+    const attemptId = sameAttempt ? prior!.attemptId : randomUUID();
+    // A retried attempt keeps the predecessor it was first written with; a
+    // NEW attempt replaces whatever was acked before it.
+    const supersedes = sameAttempt
+      ? prior!.supersedes
+      : prior && prior.delivery === "acked" && prior.artifactId && prior.checksum !== state.checksum
+        ? prior.artifactId
+        : null;
+    const now = this.wall().toISOString();
+    const record: FinalOutputRecord = {
+      attemptId,
+      messageId: state.messageId ?? null,
+      turnId: state.turnId ?? null,
+      sequence: state.sequence,
+      checksum: state.checksum,
+      message: {
+        text: last.text,
+        at: last.at,
+        sequence: last.sequence,
+        toolCalls: last.toolCalls,
+        ...(last.messageId ? { messageId: last.messageId } : {}),
+        ...(last.turnId ? { turnId: last.turnId } : {}),
+      },
+      delivery: "pending",
+      artifactId: null,
+      supersedes,
+      reason: null,
+      updatedAt: now,
+      attempts: [
+        ...(prior?.attempts ?? []).slice(-20),
+        { attemptId, checksum: state.checksum, delivery: "pending", artifactId: null, at: now },
+      ],
+    };
+    // The payload is built ONCE per attempt and stored with the record: a
+    // retry re-sends the stored bytes, never a rebuilt document.
+    const body =
+      sameAttempt && typeof prior!.body === "string"
+        ? prior!.body
+        : withSemanticHeader(
+            {
+              kind: "final-output",
+              attemptId,
+              ...(state.messageId ? { messageId: state.messageId } : {}),
+              ...(state.turnId ? { turnId: state.turnId } : {}),
+              sequence: state.sequence,
+              observedAt: state.observedAt,
+              state: "provisional",
+              turnClosing: state.turnClosing,
+              ...(state.reason ? { reason: state.reason } : {}),
+              ...(supersedes ? { supersedes } : {}),
+              producer: "session-host",
+              provider: this.deps.provider,
+            },
+            this.finalResponseBody(last),
+          );
+    record.body = body;
+    // Durable pending BEFORE the network: a crash here leaves a record that
+    // says exactly what was about to be delivered — bytes included.
+    this.writeFinalOutputRecord(record);
+    const settle = (patch: Partial<FinalOutputRecord>): void => {
+      const at = this.wall().toISOString();
+      const attempts = record.attempts.map((a) =>
+        a.attemptId === attemptId ? { ...a, delivery: patch.delivery ?? a.delivery, artifactId: patch.artifactId ?? a.artifactId, at } : a,
+      );
+      this.writeFinalOutputRecord({ ...record, ...patch, attempts, updatedAt: at });
+    };
     const bearer = this.bearerOf();
     try {
       const response = await this.retrying(() =>
@@ -925,66 +1213,123 @@ export class SessionBridge {
               // own layer. No new push kind and no new ArtifactType: the seven
               // kinds are frozen vocabulary and this is a report the agent wrote.
               kind: "report",
-              title: `Final response — session ${this.deps.sessionId.slice(-8)}`,
+              title: `Final response (provisional) — session ${this.deps.sessionId.slice(-8)}`,
               body,
             }),
           },
         ),
       );
-      if (response.ok) {
-        const ack = (await response.json().catch(() => null)) as {
-          artifactId?: string;
-        } | null;
-        return ack?.artifactId ?? null;
+      const ack = (await response.json().catch(() => null)) as {
+        artifactId?: string;
+        error?: string;
+        detail?: string;
+        currentFinalArtifactId?: string;
+      } | null;
+      if (response.ok && ack?.artifactId) {
+        settle({ delivery: "acked", artifactId: ack.artifactId });
+        return { artifactId: ack.artifactId, attemptId, delivery: "acked", supersedes };
       }
       if (response.status === 401) {
         void this.deps.onUnauthorized?.(bearer)?.catch(() => undefined);
       }
+      const message = `${ack?.error ?? ""} ${ack?.detail ?? ""}`;
+      if (response.status === 409 && message.includes("FINAL_OUTPUT_EXISTS")) {
+        const current = ack?.currentFinalArtifactId ?? null;
+        settle({ delivery: "final-exists", artifactId: current });
+        this.deps.log?.(
+          `final response: an explicit final output already exists on this session (${current ?? "id unknown"}) — the host's provisional copy was not stored`,
+        );
+        return { artifactId: current, attemptId, delivery: "final-exists" };
+      }
+      const reason = `not stored (HTTP ${response.status}${message.trim() ? ` ${message.trim()}` : ""})`;
+      settle({ delivery: "failed", reason });
+      this.failures.add(`final output ${reason}`);
       this.deps.log?.(
-        `final response: not stored (HTTP ${response.status}) — the session's closing output was not captured`,
+        `final response: ${reason} — the session's closing output was not preserved; the pending record is kept in the spool for a retry`,
       );
-      return null;
+      return { artifactId: null, attemptId, delivery: "failed", reason };
     } catch (error) {
+      const reason = `not stored (${error instanceof Error ? error.message : "unknown"})`;
+      settle({ delivery: "failed", reason });
+      this.failures.add(`final output ${reason}`);
       this.deps.log?.(
-        `final response: not stored (${error instanceof Error ? error.message : "unknown"}) — the session's closing output was not captured`,
+        `final response: ${reason} — the session's closing output was not preserved; the pending record is kept in the spool for a retry`,
       );
-      return null;
+      return { artifactId: null, attemptId, delivery: "failed", reason };
     }
   }
 
   /**
-   * The stored document. Self-describing on purpose: a reader has to be able to
-   * tell this apart from the RUN_SUMMARY sitting beside it, and has to know it
-   * is verbatim provider output rather than anything the server derived.
+   * The stored document under the semantic header. Self-describing on
+   * purpose: a reader has to be able to tell this apart from the RUN_SUMMARY
+   * sitting beside it, and has to know it is verbatim provider output rather
+   * than anything the server derived.
    *
-   * Bounded here as well as server-side, and a truncation SAYS so — an artifact
-   * silently missing its tail is worse than one that names the cut.
+   * Bounded here as well as server-side, and a truncation SAYS so (R07) — an
+   * artifact silently missing its tail is worse than one that names the cut.
    */
   private finalResponseBody(last: {
     text: string;
     at: string;
     sequence: number;
+    toolCalls: number;
   }): string {
     const header = [
-      `# Final response — session ${this.deps.sessionId}`,
+      `# Final response (provisional) — session ${this.deps.sessionId}`,
       "",
       `The last assistant message this session's host observed before close (event ${last.sequence}, ${last.at}).`,
-      "Verbatim provider output — redacted on this machine and again on arrival.",
+      last.toolCalls > 0
+        ? `It made ${last.toolCalls} tool call(s) after this text, so it is a MID-TURN progress note, not a turn-closing answer.`
+        : "It closed its turn (no tool calls followed it).",
+      "Verbatim provider output — redacted on this machine and again on arrival. Provisional: an explicit `jentrix push report --final` is the certified deliverable.",
       "This is model prose, not a server projection: the RUN_SUMMARY artifact is the deterministic record of what the session did.",
       "",
       "---",
       "",
     ].join("\n");
-    const room = MAX_FINAL_RESPONSE_BYTES - Buffer.byteLength(header, "utf8");
-    if (Buffer.byteLength(last.text, "utf8") <= room) return header + last.text;
-    const notice = "\n\n[truncated — the response exceeded the artifact limit]";
+    const room = MAX_FINAL_RESPONSE_BYTES - Buffer.byteLength(header, "utf8") - 512;
+    const originalBytes = Buffer.byteLength(last.text, "utf8");
+    if (originalBytes <= room) return header + last.text;
+    const notice = (retained: number) =>
+      `\n\n[truncated: the response was ${originalBytes} bytes; ${retained} retained by the ${MAX_FINAL_RESPONSE_BYTES / 1024 / 1024} MiB artifact limit — the complete text remains in the local provider transcript]`;
     const kept = Buffer.from(last.text, "utf8")
-      .subarray(0, Math.max(0, room - Buffer.byteLength(notice, "utf8")))
+      .subarray(0, Math.max(0, room - Buffer.byteLength(notice(originalBytes), "utf8")))
       .toString("utf8")
       // A byte-slice can cut a multi-byte character in half; drop the
       // replacement char it decodes to rather than storing mojibake.
       .replace(/�+$/, "");
-    return header + kept + notice;
+    this.truncations.add(`final output truncated to ${Buffer.byteLength(kept, "utf8")} of ${originalBytes} bytes`);
+    return header + kept + notice(Buffer.byteLength(kept, "utf8"));
+  }
+
+  /**
+   * R05 — the coverage classes for this session, by name: what was observed,
+   * what this adapter cannot observe, what consent withheld (TRACE off), what
+   * a cap cut, and what failed. Reported on the close so a reader never
+   * infers completeness from a green token-receipt coverage.
+   */
+  coverageReport(pendingParts = 0): CoverageReport {
+    const traceOff = this.deps.traceCapture === false;
+    const skeleton = this.skeleton?.observedAnything ? this.skeletonSnapshot() : null;
+    const truncated = [...this.truncations];
+    if (skeleton?.truncated) truncated.push("activity skeleton coalesced at its caps");
+    if (skeleton?.filesTouched && skeleton.filesTouched.totalExact === false) {
+      truncated.push("files-touched total is a floor (overflow identity cap)");
+    }
+    const failed = [...this.failures];
+    if (pendingParts > 0) failed.push(`${pendingParts} trace part(s) not acknowledged`);
+    return {
+      observed: [...this.observedKinds].sort(),
+      unsupported: [
+        ...(this.capability?.notObservable ?? []),
+        ...(this.capability?.unsupported ?? []),
+      ],
+      omittedByConsent: traceOff
+        ? ["prompt bodies", "tool arguments and results", "assistant message bodies", "transcript parts"]
+        : [],
+      truncated,
+      failed,
+    };
   }
 
   /**
@@ -1050,18 +1395,34 @@ export class SessionBridge {
   private async completeWithFallback(
     args: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    try {
-      return await this.deps.callTool("complete_agent_session", args);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!("captureOff" in args) || !message.includes("captureOff"))
-        throw error;
-      const { captureOff: _dropped, ...rest } = args;
-      this.deps.log?.(
-        "capture: this server does not accept `captureOff` — closing without it (the capture-off verdict falls back to the alignment snapshot)",
-      );
-      return this.deps.callTool("complete_agent_session", rest);
+    // The optional close fields a server may predate, oldest first. R01/R05
+    // (finalOutput, coverage) join captureOff under the SAME rule: only the
+    // named field, only on the error that names it, at most once each.
+    const optional = [
+      "captureOff",
+      "finalOutput",
+      "coverage",
+      "endTreeDigest",
+      "uncommittedPatchArtifactId",
+    ] as const;
+    let current = args;
+    for (let round = 0; round <= optional.length; round += 1) {
+      try {
+        return await this.deps.callTool("complete_agent_session", current);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const named = optional.find((field) => field in current && message.includes(field));
+        if (!named) throw error;
+        const { [named]: _dropped, ...rest } = current;
+        current = rest;
+        this.deps.log?.(
+          named === "captureOff"
+            ? "capture: this server does not accept `captureOff` — closing without it (the capture-off verdict falls back to the alignment snapshot)"
+            : `close: this server predates \`${named}\` — closing without it; ${named === "finalOutput" ? "the final-output acknowledgement" : named === "coverage" ? "the coverage report" : "the tree binding"} is recorded locally only`,
+        );
+      }
     }
+    return this.deps.callTool("complete_agent_session", current);
   }
 
   /**
@@ -1084,12 +1445,21 @@ export class SessionBridge {
     acknowledgeEvidenceGaps?: boolean;
     /** CLI-counted commits in the session window (JEN-167); null = unknown. */
     commitCount?: number | null;
+    /**
+     * F02 — the scoped digest of the working tree at THIS close (a clean
+     * tree has one too; null = the checkout could not be read) and the
+     * attested uncommitted patch `session end --preserve-uncommitted` pushed.
+     */
+    endTreeDigest?: string | null;
+    uncommittedPatchArtifactId?: string | null;
   }): Promise<{
     status: string;
     captureComplete: boolean;
     summaryArtifactId: string | null;
     /** AGE-649 — null when the host observed no assistant text to store. */
     finalResponseArtifactId: string | null;
+    /** R01 — how the closing output was delivered, for the host's log line. */
+    finalOutput: FinalOutputDelivery;
     pendingParts: number;
   }> {
     const { pending } = await this.flushParts();
@@ -1100,8 +1470,15 @@ export class SessionBridge {
     await this.flushUsageNow().catch(() => false);
     this.flushSkeletonSnapshot();
     // AGE-649: BEFORE the completion call — `COMPLETED` seals the session
-    // against typed pushes, so there is no "after" for this.
-    const finalResponseArtifactId = await this.pushFinalResponse();
+    // against typed pushes, so there is no "after" for this. R01: durable,
+    // identity-bearing, idempotent across a refused-close retry.
+    const finalOutput = await this.pushFinalResponse();
+    const finalResponseArtifactId = finalOutput.artifactId;
+    const preserved =
+      finalOutput.artifactId !== null &&
+      (finalOutput.delivery === "acked" ||
+        finalOutput.delivery === "reused" ||
+        finalOutput.delivery === "final-exists");
     const rollup = this.usageRollup();
     const current = (await this.deps.callTool("get_agent_session", {
       sessionId: this.deps.sessionId,
@@ -1147,6 +1524,22 @@ export class SessionBridge {
         ? { commitCount: opts.commitCount }
         : {}),
       ...(manifest ? { manifest } : {}),
+      // F02 / R04: bind the close to the tree — additive, dropped on a server
+      // that predates them (completeWithFallback).
+      ...(opts.endTreeDigest ? { endTreeDigest: opts.endTreeDigest } : {}),
+      ...(opts.uncommittedPatchArtifactId
+        ? { uncommittedPatchArtifactId: opts.uncommittedPatchArtifactId }
+        : {}),
+      // R01: the completion claim references the ACKNOWLEDGED current output
+      // of THIS attempt, or declares the gap — never silence.
+      finalOutput: preserved
+        ? {
+            artifactId: finalOutput.artifactId,
+            ...(finalOutput.attemptId ? { attemptId: finalOutput.attemptId } : {}),
+          }
+        : { missing: finalOutput.reason ?? finalOutput.delivery },
+      // R05: coverage by class, beside the token-receipt coverage below.
+      coverage: this.coverageReport(pending),
       usage: {
         inputTokens: rollup.inputTokens,
         outputTokens: rollup.outputTokens,
@@ -1177,11 +1570,20 @@ export class SessionBridge {
     } catch {
       // Absent (no receipts) or unremovable — either way not worth failing.
     }
+    // A successful close retires the durable final-output record: the
+    // server holds the acknowledged artifact, and a NEXT session's host must
+    // not inherit this one's attempt.
+    try {
+      unlinkSync(this.finalOutputPath());
+    } catch {
+      // absent — nothing was pushed, or a retry will find nothing to reuse
+    }
     return {
       status: result.status ?? opts.outcome,
       captureComplete: Boolean(result.captureComplete),
       summaryArtifactId: result.summaryArtifactId ?? null,
       finalResponseArtifactId,
+      finalOutput,
       pendingParts: pending,
     };
   }

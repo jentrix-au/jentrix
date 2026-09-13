@@ -1,0 +1,66 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-13-jen-536-review-remediation-2",
+  "issue": "JEN-536",
+  "title": "Second M1 review remediation (reports/plugin-m1-review-2026-09-13): F01 fail-closed shell lexer + help/listing refusal, F02a execution-scope binding (no cd, no outside-checkout args, repoRoot in the receipt), F02b exact-or-unknown tree digest, F03 retry re-sends the stored payload, F05 explicit final never certifies an invalid acknowledgement",
+  "behaviors": [
+    "R01",
+    "R03",
+    "R04",
+    "P07",
+    "P16"
+  ],
+  "base": {
+    "revision": "c795940179214c991ce1d4079e4752a097c5a55d"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "plugins/claude/commands/",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/codex/plugins/jentrix/skills/",
+    "plugins/registry.json",
+    "plugins/workflows/common.md",
+    "plugins/workflows/end.md",
+    "src/commands/push.ts",
+    "src/repo.ts",
+    "src/session-host/gate-classifier.ts",
+    "src/session-host/session-bridge.ts",
+    "test/gate-classifier.test.ts",
+    "test/review-2026-09-13.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/gate-classifier.test.ts",
+        "test/review-2026-09-13.test.ts",
+        "test/session-bridge.smoke.test.ts",
+        "test/audit-corrections.test.ts",
+        "test/plugin-sync-conformance.test.ts"
+      ],
+      "rationale": "All four remaining findings live in shared code (classifier, receipt builder, tree digest, bridge retry); regenerated /jentrix-end and common text describe the lexer's refusals and the run-from-root rule."
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/gate-classifier.test.ts",
+        "test/review-2026-09-13.test.ts",
+        "test/session-bridge.smoke.test.ts",
+        "test/audit-corrections.test.ts",
+        "test/plugin-sync-conformance.test.ts"
+      ],
+      "rationale": "Same shared code; the F03 reproduction is a Codex Stop-mapped replacement output retried by a fresh bridge. Regenerated $jentrix-end and common skill text."
+    },
+    "opencode": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    },
+    "pi": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    }
+  }
+}

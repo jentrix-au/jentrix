@@ -10,7 +10,7 @@
  * Pure classifiers first (unit-tested on fixtures), then `clientChecks`,
  * which runs them over the injected probes the installer already uses.
  */
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { CLI_VERSION } from "../client";
 import { createSessionRedactor } from "../session-host/session-redact";
@@ -348,6 +348,61 @@ const MANIFEST: Record<PluginProvider, string> = {
   codex: join("plugins", "jentrix", ".codex-plugin", "plugin.json"),
 };
 
+/** `jentrix.behaviorRevision` off a package.json, or null when unstamped. */
+export function behaviourRevisionOf(
+  pkg: Record<string, unknown> | null,
+): string | null {
+  const meta = pkg?.jentrix;
+  const revision =
+    meta && typeof meta === "object"
+      ? (meta as { behaviorRevision?: unknown }).behaviorRevision
+      : null;
+  return typeof revision === "string" && revision ? revision : null;
+}
+
+/**
+ * plugin-sync G06 — the PURE verdict over the three behaviour-revision
+ * readers. Equal everywhere is ok; a copy that predates stamping is said so
+ * (warn, not fail — an older plugin still works, it just cannot prove which
+ * behaviour it carries); any two present-but-different values are MIXED and
+ * the fix is a scoped reinstall of this one provider. Exported for tests.
+ */
+export function behaviourRevisionCheck(
+  provider: PluginProvider,
+  facts: {
+    cli: string | null;
+    installed: string | null;
+    loaded: string | null;
+    /** Whether a loaded (provider-cached) copy exists to read at all. */
+    loadedKnown: boolean;
+  },
+): DoctorCheck {
+  const name = `behaviour ${provider}`;
+  const show = (v: string | null) => v ?? "(unstamped)";
+  const summary = `CLI ${show(facts.cli)} · installed ${show(facts.installed)} · loaded ${facts.loadedKnown ? show(facts.loaded) : "(no provider copy)"}`;
+  const present = [facts.cli, facts.installed, facts.loadedKnown ? facts.loaded : null].filter(
+    (v): v is string => typeof v === "string",
+  );
+  const distinct = new Set(present);
+  if (distinct.size > 1) {
+    return {
+      name,
+      status: "warn",
+      detail: `MIXED behaviour revisions — ${summary}; new ${provider} sessions run the LOADED copy`,
+      fix: `jentrix plugin install ${provider} (scoped to this provider; pins, trust and active sessions are kept)`,
+    };
+  }
+  if (facts.installed === null || (facts.loadedKnown && facts.loaded === null)) {
+    return {
+      name,
+      status: "warn",
+      detail: `a copy predates the behaviour revision stamp — ${summary}`,
+      fix: `jentrix plugin install ${provider}`,
+    };
+  }
+  return { name, status: "ok", detail: summary };
+}
+
 /** The client checks, appended to the doctor's list. Empty without probes. */
 export async function clientChecks(
   deps: Pick<SessionCommandDeps, "client" | "fetchImpl" | "resolveTarget">,
@@ -361,6 +416,17 @@ export async function clientChecks(
     status: "ok",
     detail: `@jentrix/cli ${CLI_VERSION} — ${installSource(root)} (${root})`,
   });
+
+  // plugin-sync G06: the CLI's own behaviour revision, stamped by
+  // `pnpm sync:plugin-meta` into package.json. Null on a build that predates
+  // the registry — reported as such, never invented.
+  const cliRevision = behaviourRevisionOf(
+    readJson(client, join(root, "package.json")),
+  );
+  const installedRevisions = new Map<
+    PluginProvider,
+    { pluginDir: string; version: string | null; revision: string | null }
+  >();
 
   for (const provider of ["claude", "codex"] as const) {
     const pluginDir =
@@ -383,6 +449,11 @@ export async function clientChecks(
       typeof packaged?.version === "string" ? packaged.version : null;
     const manifestVersion =
       typeof manifest?.version === "string" ? manifest.version : null;
+    installedRevisions.set(provider, {
+      pluginDir,
+      version: packagedVersion,
+      revision: behaviourRevisionOf(packaged),
+    });
     checks.push(
       packagedVersion !== null && packagedVersion === manifestVersion
         ? {
@@ -554,6 +625,26 @@ export async function clientChecks(
             detail: `${packageHooks.length} commands pinned to ${target}${cacheNote}`,
             ...(mismatch ? { fix: `jentrix plugin install ${provider}` } : {}),
           },
+    );
+
+    // plugin-sync G06: INSTALLED (the package this CLI resolves) versus LOADED
+    // (the copy the provider actually runs from its cache) versus the CLI's
+    // own behaviour revision. Three readers of one number; a disagreement is
+    // a stale loader, a mixed release set or a half-finished upgrade, and the
+    // repair is scoped to THIS provider — never a silent update of every host.
+    const loadedPackagePath =
+      cachedPath === null ? null : join(dirname(dirname(cachedPath)), "package.json");
+    const loaded =
+      loadedPackagePath !== null && client.fileExists(loadedPackagePath)
+        ? behaviourRevisionOf(readJson(client, loadedPackagePath))
+        : null;
+    checks.push(
+      behaviourRevisionCheck(provider, {
+        cli: cliRevision,
+        installed: installedRevisions.get(provider)?.revision ?? null,
+        loaded,
+        loadedKnown: loadedPackagePath !== null && client.fileExists(loadedPackagePath),
+      }),
     );
   }
 

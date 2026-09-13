@@ -19,6 +19,34 @@ export type SessionEventKind =
   | "usage"
   | "error";
 
+/**
+ * R05 (prds/opencode-pi-plugins-prd.md §4.1) — the COMMON typed identity and
+ * outcome fields every adapter fills when its host exposes them. The opaque
+ * `payload` keeps the provider's own shape (an extension, never the
+ * contract); these three are what a consumer may correlate on without
+ * knowing which host produced the event. Absent = the host did not expose
+ * it, which the capability snapshot's coverage names — never a silent gap.
+ */
+export interface SessionEventIds {
+  /** The provider turn (Codex `turn_id`; a Claude turn id when known). */
+  turnId?: string;
+  /** The API/provider message this event belongs to (Claude `message.id`). */
+  messageId?: string;
+  /** The tool call this call/result pairs on (Claude `tool_use_id`, Codex call id). */
+  toolCallId?: string;
+  /** The parent session for child/sidechain work, when the host names one. */
+  parentSessionId?: string;
+}
+
+export type SessionEventOutcome = "ok" | "error" | "cancelled";
+
+export interface SessionEventAttachment {
+  kind: "image" | "document" | "file" | "other";
+  mediaType?: string;
+  /** A reference the host gave (path/id) — never the bytes. */
+  ref?: string;
+}
+
 export interface SessionEvent {
   version: typeof SESSION_EVENT_VERSION;
   /** Monotonic per-session sequence, assigned by the local bridge. */
@@ -28,6 +56,12 @@ export interface SessionEvent {
   provider: "claude" | "codex";
   providerEventId?: string;
   kind: SessionEventKind;
+  /** R05 — common correlation ids, when the host exposed them. */
+  ids?: SessionEventIds;
+  /** R05 — the result state of a tool/turn, when the host exposed it. */
+  outcome?: SessionEventOutcome;
+  /** R05 — non-text input the host carried (image-only prompts, files). */
+  attachments?: SessionEventAttachment[];
   payload: unknown;
 }
 
@@ -55,6 +89,9 @@ export function serializeSessionEvent(event: SessionEvent): string {
       ? { providerEventId: event.providerEventId }
       : {}),
     kind: event.kind,
+    ...(event.ids && Object.keys(event.ids).length ? { ids: event.ids } : {}),
+    ...(event.outcome ? { outcome: event.outcome } : {}),
+    ...(event.attachments?.length ? { attachments: event.attachments } : {}),
     payload: event.payload,
   })}\n`;
 }

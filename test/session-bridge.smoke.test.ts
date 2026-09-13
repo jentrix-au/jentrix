@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -586,7 +586,11 @@ test("bridge: the final response is pushed as a typed report BEFORE the session 
   const push = calls.find((c) => c.url.includes("/artifacts"));
   assert.ok(push, "the final response was pushed");
   assert.equal(push!.body.kind, "report");
-  assert.match(String(push!.body.title), /^Final response — session /);
+  // R01: the host's copy is labelled PROVISIONAL in its title and header —
+  // only `jentrix push report --final` certifies a deliverable.
+  assert.match(String(push!.body.title), /^Final response \(provisional\) — session /);
+  assert.match(String(push!.body.body), /^```jentrix\nschema: 1\nkind: final-output\n/);
+  assert.match(String(push!.body.body), /\nstate: provisional\n/);
   const body = String(push!.body.body);
   // The NEWEST message, not the first one observed.
   assert.match(body, /Shipped the operator path\. Drift gate green\./);
@@ -706,9 +710,10 @@ test("bridge: an oversized final response is truncated and SAYS so", async () =>
     Buffer.byteLength(body, "utf8") <= MAX_FINAL_RESPONSE_BYTES,
     "stays inside the bound the server enforces",
   );
+  // R07: the cut names the original and retained sizes and where the rest is.
   assert.match(
     body,
-    /\[truncated — the response exceeded the artifact limit\]/,
+    /\[truncated: the response was \d+ bytes; \d+ retained by the 2 MiB artifact limit — the complete text remains in the local provider transcript\]/,
   );
 });
 
@@ -1045,4 +1050,149 @@ test("complete does NOT swallow an unrelated refusal", async () => {
     /EVIDENCE_FLOOR/,
   );
   assert.equal(calls, 1, "no blind retry on a real refusal");
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-12 review — F02 (tree binding through the live-host close) and
+// F03 (the final output survives a host restart).
+// ---------------------------------------------------------------------------
+
+test("F02: complete carries the tree digest and the preserved patch id, and drops them on a server that predates them", async () => {
+  const { bridge, toolCalls } = fakeBridge({});
+  bridge.startObserving();
+  await bridge.complete({
+    outcome: "COMPLETED",
+    end: { branch: "main", head: "abc", dirty: true },
+    endTreeDigest: "tree-9",
+    uncommittedPatchArtifactId: "art_patch",
+  });
+  const complete = toolCalls.find((c) => c.name === "complete_agent_session")!;
+  assert.equal(complete.args.endTreeDigest, "tree-9");
+  assert.equal(complete.args.uncommittedPatchArtifactId, "art_patch");
+
+  const root = mkdtempSync(join(tmpdir(), "stacks-f02-"));
+  const seen: Array<Record<string, unknown>> = [];
+  const logs: string[] = [];
+  const old = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_old",
+    provider: "claude",
+    spool: new SessionSpool(root, "ses_old"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    traceCapture: false,
+    log: (line) => logs.push(line),
+    callTool: async (name, args) => {
+      if (name === "get_agent_session") return { updatedAt: "2026-08-06T10:00:00.000Z" };
+      seen.push(args);
+      if (name === "complete_agent_session" && "endTreeDigest" in args) {
+        throw new Error('complete_agent_session failed: {"error":{"code":"INVALID_INPUT","message":"Unknown parameter \\"endTreeDigest\\" for this tool."}}');
+      }
+      return { status: "COMPLETED", captureComplete: true };
+    },
+  });
+  const result = await old.complete({
+    outcome: "COMPLETED",
+    end: { branch: "main", head: "abc", dirty: true },
+    endTreeDigest: "tree-9",
+    uncommittedPatchArtifactId: "art_patch",
+  });
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(seen.length, 2, "one rejected attempt, one without the field");
+  assert.equal("endTreeDigest" in seen[1]!, false);
+  assert.equal(seen[1]!.uncommittedPatchArtifactId, "art_patch", "only the NAMED field is dropped");
+  assert.match(logs.join("\n"), /predates `endTreeDigest`/);
+});
+
+function hostOver(spool: SessionSpool, calls: FakeCall[], logs: string[], artifact: { status: number; body: unknown } | "network-error" = { status: 200, body: { artifactId: "art_final", type: "REPORT", deduped: true } }) {
+  return new SessionBridge({
+    jentrixBaseUrl: "https://stacks.example",
+    bearer: "tmo_transient_bearer_123",
+    sessionId: "ses_1",
+    provider: "claude",
+    spool,
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    log: (line) => logs.push(line),
+    callTool: async () => ({}),
+    fetchImpl: (async (url: URL | string, init?: RequestInit) => {
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+      calls.push({ url: String(url), body });
+      if (artifact === "network-error") throw new Error("ECONNREFUSED");
+      return { ok: artifact.status < 400, status: artifact.status, json: async () => artifact.body, text: async () => JSON.stringify(artifact.body) } as unknown as Response;
+    }) as typeof fetch,
+    monotonic: () => 100_000,
+    wallClock: () => new Date("2026-08-06T10:00:00.000Z"),
+  });
+}
+
+test("F03: a host restarted over the spool retries a FAILED final-output attempt from the durable record — same attempt id, same bytes", async () => {
+  const { bridge, spool, calls } = fakeBridge({ artifactResponses: ["network-error"] });
+  bridge.startObserving();
+  bridge.record({ kind: "assistant_message", payload: { text: "The migration is applied and the token is sk-live-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA." } });
+  const first = await bridge.pushFinalResponse();
+  assert.equal(first.delivery, "failed");
+  assert.ok(first.attemptId);
+  const record = JSON.parse(readFileSync(join(spool.directory, "final-output.json"), "utf8")) as { delivery: string; message?: { text: string }; attemptId: string };
+  assert.equal(record.delivery, "failed");
+  assert.match(record.message!.text, /The migration is applied/);
+  assert.doesNotMatch(record.message!.text, /sk-live-AAAA/, "the durable copy is the REDACTED text");
+
+  // A new process: nothing in memory, the record on disk.
+  const retried: FakeCall[] = [];
+  const logs: string[] = [];
+  const second = hostOver(spool, retried, logs, { status: 200, body: { artifactId: "art_retry", type: "REPORT", deduped: false } });
+  const retry = await second.pushFinalResponse();
+  assert.equal(retry.delivery, "acked");
+  assert.equal(retry.artifactId, "art_retry");
+  assert.equal(retry.attemptId, first.attemptId, "the SAME attempt converges");
+  const posted = retried.find((c) => c.url.includes("/artifacts"))!;
+  assert.match(String(posted.body.body), new RegExp(`attemptId: ${first.attemptId}`));
+  assert.match(String(posted.body.body), /The migration is applied/);
+  assert.match(logs.join("\n"), /retrying attempt .* from the durable record/);
+  const settled = JSON.parse(readFileSync(join(spool.directory, "final-output.json"), "utf8")) as { delivery: string; artifactId: string };
+  assert.equal(settled.delivery, "acked");
+  assert.equal(settled.artifactId, "art_retry");
+  // And a THIRD process over the acked record reuses it — no upload.
+  const third: FakeCall[] = [];
+  const reuse = await hostOver(spool, third, []).pushFinalResponse();
+  assert.equal(reuse.delivery, "reused");
+  assert.equal(reuse.artifactId, "art_retry");
+  assert.equal(third.length, 0);
+});
+
+test("F03: a LOST acknowledgement (uploaded, record never settled) is retried byte-identically, so the server dedupes to one artifact", async () => {
+  const { bridge, spool, calls } = fakeBridge({});
+  bridge.startObserving();
+  bridge.record({ kind: "assistant_message", payload: { text: "Done — shipped." } });
+  const first = await bridge.pushFinalResponse();
+  assert.equal(first.delivery, "acked");
+  const firstBody = String(calls.find((c) => c.url.includes("/artifacts"))!.body.body);
+  // Simulate the crash between the server's ack and the record's settle.
+  const path = join(spool.directory, "final-output.json");
+  const record = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  writeFileSync(path, JSON.stringify({ ...record, delivery: "pending", artifactId: null }));
+
+  const retried: FakeCall[] = [];
+  const retry = await hostOver(spool, retried, [], { status: 200, body: { artifactId: "art_final", type: "REPORT", deduped: true } }).pushFinalResponse();
+  assert.equal(retry.delivery, "acked");
+  assert.equal(retry.attemptId, first.attemptId);
+  assert.equal(String(retried[0]!.body.body), firstBody, "identical bytes — the typed-push dedupe converges on the first row");
+});
+
+test("F03: a record that cannot be written is REPORTED in the close's coverage, and the upload still happens", async () => {
+  const { bridge, spool, calls, toolCalls } = fakeBridge({});
+  bridge.startObserving();
+  bridge.record({ kind: "assistant_message", payload: { text: "Answer." } });
+  rmSync(spool.directory, { recursive: true, force: true });
+  const delivery = await bridge.pushFinalResponse();
+  assert.equal(delivery.delivery, "acked", "the output matters more than the record");
+  assert.ok(calls.some((c) => c.url.includes("/artifacts")));
+  assert.ok(bridge.coverageReport().failed.some((f) => /final output record not durable/.test(f)), bridge.coverageReport().failed.join(" | "));
+  // A pre-fix record (no message text) cannot be retried, and says so.
+  mkdirSync(spool.directory, { recursive: true });
+  writeFileSync(join(spool.directory, "final-output.json"), JSON.stringify({ attemptId: "old-1", messageId: null, turnId: null, sequence: 1, checksum: "c", delivery: "failed", artifactId: null, supersedes: null, reason: "x", updatedAt: "t", attempts: [] }));
+  const legacy = await hostOver(spool, [], []).pushFinalResponse();
+  assert.equal(legacy.delivery, "failed");
+  assert.match(String(legacy.reason), /carries no output text/);
+  void toolCalls;
 });

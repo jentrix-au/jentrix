@@ -135,10 +135,18 @@ export function registerSessionCommand(
       "--acknowledge-evidence-gaps",
       "close even with unmet evidence-floor checks — each unmet check is stamped MISSING into the summary's Review readiness",
     )
+    .option(
+      "--preserve-uncommitted",
+      "push the uncommitted working-tree delta (tracked + untracked) as an attested patch before closing — for sessions that end dirty by design (no-commit authorization)",
+    )
     .action(
       async (
         sessionId: string | undefined,
-        flags: { json?: boolean; acknowledgeEvidenceGaps?: boolean },
+        flags: {
+          json?: boolean;
+          acknowledgeEvidenceGaps?: boolean;
+          preserveUncommitted?: boolean;
+        },
       ) => onExit(await runSessionEnd(sessionId, flags, deps)),
     );
   // Returned so `session snapshot` can be registered from main.ts — it lives
