@@ -60,6 +60,12 @@ import {
   mapCodexRolloutLine,
 } from "./session-codex-events.js";
 import { mapCodexHook } from "./session-codex-hooks.js";
+import {
+  ledgerOpeningPromptOf,
+  mapOpenCodeHook,
+} from "./session-opencode-hooks.js";
+import { mapPiHook } from "./session-pi-hooks.js";
+import type { SessionProvider } from "./session-events.js";
 import { createSessionRedactor } from "./session-redact.js";
 import { readHookLines } from "./session-hook-log.js";
 import {
@@ -72,10 +78,101 @@ import {
 import { CLI_VERSION as RUNNER_VERSION } from "../client.js";
 import { defaultGitRunner, scopedDirtyDigest } from "../repo.js";
 
+/**
+ * R05 capability snapshots per provider — what each host's surface can emit,
+ * what it never carries, and what the adapter does not map. The plugin hosts
+ * (M2, JEN-537) observe everything through the in-process plugin ledger; the
+ * unsupported lines are the S0b findings.
+ */
+export function capabilitiesFor(
+  provider: SessionProvider,
+): Parameters<SessionBridge["recordCapabilities"]>[0] {
+  switch (provider) {
+    case "codex":
+      return {
+        provider: "codex",
+        providerVersion: null,
+        observable: [
+          "session",
+          "user_message",
+          "assistant_message",
+          "tool_call",
+          "tool_result",
+          "usage",
+        ],
+        notObservable: ["command", "file_change", "plan", "error"],
+        // R05: what the Codex hook surface does not carry even when the
+        // host has it — said here, so the coverage report can name it.
+        unsupported: [
+          "image/document attachments on prompts",
+          "child-session (sub-agent) events",
+          "streamed assistant revisions (the Stop hook carries the final text only)",
+        ],
+      };
+    case "opencode":
+      return {
+        provider: "opencode",
+        providerVersion: null,
+        observable: [
+          "session",
+          "user_message",
+          "assistant_message",
+          "tool_call",
+          "tool_result",
+          "usage",
+          "error",
+        ],
+        notObservable: ["command", "file_change", "plan"],
+        unsupported: [
+          "title-generation model calls (no message, no step-finish — uncounted)",
+          "child-session (sub-agent) events beyond the parent's own messages",
+          "replayed history on a fork (inherited messages yield no receipt)",
+        ],
+      };
+    case "pi":
+      return {
+        provider: "pi",
+        providerVersion: null,
+        observable: [
+          "session",
+          "user_message",
+          "assistant_message",
+          "tool_call",
+          "tool_result",
+          "usage",
+          "error",
+        ],
+        notObservable: ["command", "file_change", "plan"],
+        unsupported: [
+          "streamed assistant revisions (one assistant message per turn end)",
+          "inherited entries on a fork or tree switch (no live event, no receipt)",
+        ],
+      };
+    default:
+      return {
+        provider: "claude",
+        providerVersion: null,
+        observable: [
+          "session",
+          "user_message",
+          "assistant_message",
+          "tool_call",
+          "tool_result",
+          "usage",
+          "error",
+        ],
+        notObservable: ["command", "file_change", "plan"],
+        // R05: sidechain (sub-agent) entries are skipped by the transcript
+        // mapper — a parent's returned summary is not the child's record.
+        unsupported: ["child-session (sidechain) events beyond the parent's own entries"],
+      };
+  }
+}
+
 export interface SessionRunPlan {
   protocolVersion: 1;
   sessionId: string;
-  provider: "claude" | "codex";
+  provider: SessionProvider;
   jentrixBaseUrl: string;
   mcpUrl: string;
   /**
@@ -105,6 +202,16 @@ export interface SessionRunPlan {
   providerSessionId?: string | null;
   /** Watch mode: provider-global lifecycle ledger directory. */
   hookDir?: string | null;
+  /**
+   * Watch mode: the ledger length (UTF-16 units) the CLI observed when it
+   * launched this host — the baseline the tail starts from. JEN-537 (M2
+   * native trial): a plugin host writes the receipt of the assistant step
+   * that RAN `jentrix session connect` only after that command returns, so a
+   * baseline taken by the host itself (which boots after the command has
+   * returned) skipped that receipt on every trial. Absent = the host
+   * baselines at the ledger's end when it starts (pre-M2 CLIs).
+   */
+  hookOffset?: number | null;
   resumeProviderSessionId?: string | null;
   /** Watch mode: the trusted transcript path from the lifecycle hook. */
   transcriptPath?: string | null;
@@ -470,46 +577,10 @@ export async function runClaudeSessionHost(
     collectSkeleton: plan.collectSkeleton !== false,
     log,
   });
-  bridge.recordCapabilities(
-    plan.provider === "codex"
-      ? {
-          provider: "codex",
-          providerVersion: null,
-          observable: [
-            "session",
-            "user_message",
-            "assistant_message",
-            "tool_call",
-            "tool_result",
-            "usage",
-          ],
-          notObservable: ["command", "file_change", "plan", "error"],
-          // R05: what the Codex hook surface does not carry even when the
-          // host has it — said here, so the coverage report can name it.
-          unsupported: [
-            "image/document attachments on prompts",
-            "child-session (sub-agent) events",
-            "streamed assistant revisions (the Stop hook carries the final text only)",
-          ],
-        }
-      : {
-          provider: "claude",
-          providerVersion: null,
-          observable: [
-            "session",
-            "user_message",
-            "assistant_message",
-            "tool_call",
-            "tool_result",
-            "usage",
-            "error",
-          ],
-          notObservable: ["command", "file_change", "plan"],
-          // R05: sidechain (sub-agent) entries are skipped by the transcript
-          // mapper — a parent's returned summary is not the child's record.
-          unsupported: ["child-session (sidechain) events beyond the parent's own entries"],
-        },
-  );
+  bridge.recordCapabilities(capabilitiesFor(plan.provider));
+  // M2 (JEN-537): the plugin hosts' turn boundaries arrive as ledger lines
+  // stamped with the host's wall clock, like Codex rollout turns.
+  const pluginTurnStarts = new Map<string, number>();
   bridge.startObserving();
 
   const watch = plan.mode === "watch";
@@ -544,10 +615,19 @@ export async function runClaudeSessionHost(
     plan.hookDir &&
     (plan.provider === "claude" || !plan.importHistory)
   ) {
-    try {
-      hookOffset = readFileSync(join(hookDir, "hooks.ndjson"), "utf8").length;
-    } catch {
-      // The first post-attach hook creates the ledger.
+    if (
+      typeof plan.hookOffset === "number" &&
+      Number.isFinite(plan.hookOffset) &&
+      plan.hookOffset >= 0
+    ) {
+      // The CLI's baseline, taken BEFORE the connect command returned.
+      hookOffset = plan.hookOffset;
+    } else {
+      try {
+        hookOffset = readFileSync(join(hookDir, "hooks.ndjson"), "utf8").length;
+      } catch {
+        // The first post-attach hook creates the ledger.
+      }
     }
   }
   let transcriptPath: string | null = watch
@@ -651,17 +731,27 @@ export async function runClaudeSessionHost(
       }
       return;
     }
-    if (!transcriptPath) return;
+    const pluginHost = plan.provider === "opencode" || plan.provider === "pi";
+    if (pluginHost ? !plan.providerSessionId : !transcriptPath) return;
     const nowMs = Date.now();
     if (nowMs - lastPromptAttemptAt < 30_000) return;
     lastPromptAttemptAt = nowMs;
     let prompt: string | null = null;
     try {
-      const transcript = readFileSync(transcriptPath, "utf8");
-      prompt =
-        plan.provider === "claude"
-          ? openingPromptOf(transcript)
-          : codexOpeningPromptOf(transcript);
+      if (pluginHost) {
+        // The plugin ledger is the transcript (M2): the first operator prompt
+        // the plugin recorded for this session, from the ledger's start.
+        prompt = ledgerOpeningPromptOf(
+          readFileSync(join(hookDir, "hooks.ndjson"), "utf8"),
+          plan.providerSessionId!,
+        );
+      } else {
+        const transcript = readFileSync(transcriptPath!, "utf8");
+        prompt =
+          plan.provider === "claude"
+            ? openingPromptOf(transcript)
+            : codexOpeningPromptOf(transcript);
+      }
     } catch {
       return; // absent transcript → no artifact, no error (D9); retry later
     }
@@ -804,6 +894,34 @@ export async function runClaudeSessionHost(
         }
         if (line.event === "Stop" && hookTurnId) {
           bridge.markTurnEnded(hookTurnId);
+        }
+        for (const event of mapped.events) bridge.record(event);
+      }
+      if (plan.provider === "opencode" || plan.provider === "pi") {
+        // M2 (JEN-537): the in-process plugin wrote this line; the mapper
+        // turns it into the common envelope, one receipt per host receipt.
+        const mapped =
+          plan.provider === "opencode"
+            ? mapOpenCodeHook(line.event, line.payload)
+            : mapPiHook(line.event, line.payload);
+        if (mapped.modelId) bridge.observeModel(mapped.modelId);
+        if (mapped.turn?.phase === "started") {
+          pluginTurnStarts.set(mapped.turn.id, mapped.turn.at);
+        } else if (mapped.turn?.phase === "completed") {
+          const startedAt = pluginTurnStarts.get(mapped.turn.id);
+          if (startedAt !== undefined) {
+            if (mapped.turn.at >= startedAt) {
+              bridge.recordInterval({
+                kind: "turn",
+                id: mapped.turn.id,
+                startedAt,
+                endedAt: mapped.turn.at,
+              });
+            } else {
+              bridge.recordUnclosedInterval("turn", mapped.turn.id);
+            }
+            pluginTurnStarts.delete(mapped.turn.id);
+          }
         }
         for (const event of mapped.events) bridge.record(event);
       }
@@ -1137,10 +1255,12 @@ export async function runSessionHost(
   plan: SessionRunPlan,
   deps: HostDeps = {},
 ): Promise<number> {
-  if (plan.mode !== "watch" && plan.provider === "codex") {
-    // Defensive migration refusal for old or malformed launch plans.
+  if (plan.mode !== "watch" && plan.provider !== "claude") {
+    // Defensive migration refusal for old or malformed launch plans: only
+    // Claude Code is launched by the host; every other provider is started by
+    // the operator and connected beside it.
     process.stderr.write(
-      "CODEX_LAUNCH_UNAVAILABLE: the bundled session host cannot start a Codex conversation (no provider SDK ships with @jentrix/cli). Start Codex yourself, then run `jentrix session connect --provider codex` — capture attaches beside it.\n",
+      `${plan.provider.toUpperCase()}_LAUNCH_UNAVAILABLE: the bundled session host cannot start a ${plan.provider} conversation (no provider SDK ships with @jentrix/cli). Start ${plan.provider} yourself, then run \`jentrix session connect --provider ${plan.provider}\` — capture attaches beside it.\n`,
     );
     return 2;
   }

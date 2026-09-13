@@ -8,8 +8,8 @@
  * and resources enroll it atomically (S3/S4). Adding a host anywhere else is
  * what `pnpm check:plugin-sync` exists to refuse.
  */
-import { readFileSync, writeFileSync, realpathSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -67,9 +67,17 @@ export function generateWorkflows({ check = false } = {}) {
     for (const name of WORKFLOWS) {
       const file = workflowPath(provider, name);
       const expected = renderWorkflow(provider, name);
-      const actual = readFileSync(file, "utf8");
+      // A host enrolled for the first time (M2) has no generated file yet:
+      // missing is stale, never a crash.
+      let actual = null;
+      try {
+        actual = readFileSync(file, "utf8");
+      } catch {
+        actual = null;
+      }
       if (actual === expected) continue;
       if (check) throw new Error(`Stale ${file}; run pnpm gen:workflows`);
+      mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, expected);
     }
 }

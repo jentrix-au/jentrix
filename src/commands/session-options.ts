@@ -1,5 +1,6 @@
 /** Session options. */
 import { Command, Option } from "commander";
+import { SESSION_PROVIDERS } from "../session-host/session-events";
 
 export function addSessionConnectOptions(command: Command): Command {
   return command
@@ -7,7 +8,7 @@ export function addSessionConnectOptions(command: Command): Command {
       new Option(
         "--provider <provider>",
         "provider of the running session",
-      ).choices(["claude", "codex"]),
+      ).choices([...SESSION_PROVIDERS]),
     )
     .option("--provider-session <id>", "current provider session/thread id")
     .addOption(
@@ -49,7 +50,7 @@ export function addSessionAlignOptions(command: Command): Command {
       new Option(
         "--provider <provider>",
         "provider of the running session (default: detected from hooks)",
-      ).choices(["claude", "codex"]),
+      ).choices([...SESSION_PROVIDERS]),
     )
     .addOption(
       new Option(

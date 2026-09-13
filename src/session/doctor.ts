@@ -88,7 +88,7 @@ export function telemetrySourceCheck(
       status: "skip",
       detail:
         "no provider session is identified here — a session started from this shell records nothing until one is",
-      fix: "run this from inside a Claude Code or Codex task with the Jentrix plugin installed",
+      fix: "run this from inside a Claude Code, Codex, OpenCode or Pi session with the Jentrix plugin installed",
     };
   }
   const fact = telemetrySourceFor(
@@ -336,7 +336,7 @@ export async function runSessionDoctor(
   }
   deps.writeOut(
     failed.length === 0
-      ? "Ready — start with: jentrix session connect --provider claude|codex, then jentrix session align --task <id-or-key>"
+      ? "Ready — start with: jentrix session connect --provider claude|codex|opencode|pi, then jentrix session align --task <id-or-key>"
       : `${failed.length} blocker(s) — fix everything above in one pass, then re-run.`,
   );
   return failed.length === 0 ? 0 : 1;

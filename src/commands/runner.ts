@@ -16,7 +16,7 @@ export function registerRunnerCommand(
     .allowExcessArguments()
     .action(() => {
       deps.writeErr(
-        "OPS_RUNNER_REMOVED: runner operations are not supported by the MVP CLI. Use `jentrix session connect --provider claude|codex` for connected coding sessions; `jentrix --help` lists supported commands.",
+        "OPS_RUNNER_REMOVED: runner operations are not supported by the MVP CLI. Use `jentrix session connect --provider claude|codex|opencode|pi` for connected coding sessions; `jentrix --help` lists supported commands.",
       );
       onExit(EXIT_CODES.INVALID_INPUT);
     });

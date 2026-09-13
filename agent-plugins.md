@@ -11,9 +11,12 @@ task keys and absolute paths with your own values before running them.
 M1 is the common baseline for the Claude Code and Codex integrations. It adds
 semantic checkpoints, explicit final output, verification receipts tied to the
 work being checked, optional preservation of uncommitted output, artifact
-manifests and the all-host synchronization guard. The workflows below use that
-baseline. OpenCode and Pi remain planned; M1 does not enroll them or make their
-names valid `session connect` providers.
+manifests and the all-host synchronization guard. M2 enrols OpenCode and Pi as
+official hosts on the same baseline: `opencode` and `pi` are valid `session
+connect` providers, `@jentrix/plugin-opencode` and `@jentrix/plugin-pi` ship
+with the CLI, and their plugins run inside the agent process and record the
+lifecycle ledger themselves (no host hook commands, no trust step). The
+workflows below use that baseline.
 
 An older CLI installation or a cached plugin can lag behind the deployed
 service. Check the installed CLI, provider-loaded plugin and service together:
@@ -35,7 +38,7 @@ compatible CLI and refresh the official plugin, then restart the coding agent.
 ## Install and connect
 
 You need a Jentrix account with access to a workspace, Node.js 20 or later, and
-Claude Code or Codex installed. From your project checkout, run:
+Claude Code, Codex, OpenCode or Pi installed. From your project checkout, run:
 
 ```bash
 npx --yes --package @jentrix/cli@latest jentrix setup
@@ -57,12 +60,15 @@ jentrix plugin install codex
 jentrix session doctor
 ```
 
-Use `jentrix plugin install claude` for Claude Code. If the current release does
-not expose the M1 commands yet, the installed client is behind the baseline;
-report that compatibility gap instead of treating a plain report as final output.
+Use `jentrix plugin install claude` for Claude Code, `jentrix plugin install
+opencode` for OpenCode and `jentrix plugin install pi` for Pi. If the current
+release does not expose the M1 commands yet, the installed client is behind the
+baseline; report that compatibility gap instead of treating a plain report as
+final output.
 
-Start the coding agent normally after installation. Inspect and approve hooks
-in the provider's own trust interface. An agent must not grant itself trust.
+Start the coding agent normally after installation. For Claude Code and Codex,
+inspect and approve hooks in the provider's own trust interface. An agent must
+not grant itself trust. OpenCode and Pi load their in-process plugin at startup.
 In the live provider session, bind the checkout to your actual workspace:
 
 ```bash
@@ -72,9 +78,10 @@ jentrix folder align --workspace example-team
 
 The native workflows are `/jentrix-connect`, `/jentrix-align`, `/jentrix-plan`,
 `/jentrix-checkpoint`, `/jentrix-review`, `/jentrix-status` and `/jentrix-end` in
-Claude Code. Codex exposes the same names as `$jentrix-connect`, `$jentrix-align`,
-`$jentrix-plan`, `$jentrix-checkpoint`, `$jentrix-review`, `$jentrix-status` and
-`$jentrix-end`. Invoke these in the agent chat, not in a shell.
+Claude Code, OpenCode and Pi. Codex exposes the same names as `$jentrix-connect`,
+`$jentrix-align`, `$jentrix-plan`, `$jentrix-checkpoint`, `$jentrix-review`,
+`$jentrix-status` and `$jentrix-end`. Invoke these in the agent chat, not in a
+shell.
 
 ## Choose the integration you need
 
@@ -235,7 +242,8 @@ After installation and folder binding, invoke the native workflows in the live
 agent. Their underlying CLI connection and alignment sequence is:
 
 ```bash
-# Run inside the intended checkout and live Codex session; use claude for Claude.
+# Run inside the intended checkout and live Codex session; use claude, opencode
+# or pi for the other hosts.
 jentrix session doctor
 jentrix session connect --provider codex
 jentrix session align --provider codex --task JEN-123
@@ -322,7 +330,7 @@ that the intended content was retained.
 | FINDINGS, ISSUE, GAP, LEARNING | Keep defects, unexercised work and reusable lessons typed and attributable; recording one does not authorize creating a card |
 | RUN_SUMMARY | Let the server project stored facts; show outcome/next action, verification, coverage and human acceptance separately |
 
-M1 preserves these invariants across both official integrations. Retries use
+The common baseline preserves these invariants across all four official integrations. Retries use
 durable attempt identity and the same payload; final supersession is atomic on
 the server; an acknowledgement must refer to valid output for that attempt.
 Close-by-id must retain stored usage with its coverage and provenance, without

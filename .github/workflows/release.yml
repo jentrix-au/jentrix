@@ -1,9 +1,10 @@
 name: release
 
-# Publishes the three client packages — `@jentrix/plugin-claude`,
-# `@jentrix/plugin-codex` and `@jentrix/cli` — when a `cli-v*` tag is pushed,
+# Publishes the five client packages — `@jentrix/plugin-claude`,
+# `@jentrix/plugin-codex`, `@jentrix/plugin-opencode`, `@jentrix/plugin-pi`
+# and `@jentrix/cli` — when a `cli-v*` tag is pushed,
 # PACK-ONCE and STRAIGHT TO `latest`: `pnpm -r pack` runs exactly once, the
-# three tarballs are clean-installed and exercised TOGETHER, and the very same
+# five tarballs are clean-installed and exercised TOGETHER, and the very same
 # files are then `npm publish`ed under the `latest` dist-tag — plugins first,
 # the CLI last, because the CLI's package.json pins the plugin versions and must
 # never be installable before they are. Nothing repacks between validation and
@@ -37,7 +38,7 @@ name: release
 # repository + workflow file + ENVIRONMENT, which is why `id-token: write` and
 # `environment: release` below are both load-bearing, and why renaming this
 # file or the environment breaks publishing until the trusted publisher is
-# re-pointed on npmjs.com. EACH of the three packages needs its own
+# re-pointed on npmjs.com. EACH of the five packages needs its own
 # trusted-publisher entry there (organization or user `jentrix-au`, repository
 # `jentrix`, workflow `release.yml`, environment `release`, allowed action: npm
 # publish). The `release` environment carries a required reviewer, so EVERY
@@ -120,10 +121,10 @@ jobs:
           pnpm test
 
       # PACK ONCE. `prepack` builds dist/ inside the CLI package; pnpm rewrites
-      # every `workspace:*` range to the exact version. These three files are
+      # every `workspace:*` range to the exact version. These five files are
       # what gets validated AND what gets published — nothing repacks after
       # this step, and any `workspace:` range that survived is a red build.
-      - name: Pack the three packages once
+      - name: Pack the five packages once
         id: pack
         run: |
           out="$RUNNER_TEMP/pack"
@@ -131,8 +132,8 @@ jobs:
           pnpm -r pack --pack-destination "$out"
           ls -la "$out"
           pick() { ls "$out"/"$1"-*.tgz | head -n1; }
-          claude="$(pick jentrix-plugin-claude)"; codex="$(pick jentrix-plugin-codex)"; cli="$(pick jentrix-cli)"
-          for t in "$claude" "$codex" "$cli"; do
+          claude="$(pick jentrix-plugin-claude)"; codex="$(pick jentrix-plugin-codex)"; opencode="$(pick jentrix-plugin-opencode)"; pi="$(pick jentrix-plugin-pi)"; cli="$(pick jentrix-cli)"
+          for t in "$claude" "$codex" "$opencode" "$pi" "$cli"; do
             test -s "$t" || { echo "::error::missing tarball: $t"; exit 1; }
             if tar -xzOf "$t" package/package.json | grep -q "workspace:"; then
               echo "::error::$t still carries a workspace: range — pnpm did not rewrite it"
@@ -142,6 +143,8 @@ jobs:
           done
           echo "claude=$claude" >> "$GITHUB_OUTPUT"
           echo "codex=$codex" >> "$GITHUB_OUTPUT"
+          echo "opencode=$opencode" >> "$GITHUB_OUTPUT"
+          echo "pi=$pi" >> "$GITHUB_OUTPUT"
           echo "cli=$cli" >> "$GITHUB_OUTPUT"
 
       # plugin-sync G05: the EXACT tarballs above carry one behaviour revision,
@@ -161,17 +164,19 @@ jobs:
         env:
           CLAUDE_TGZ: ${{ steps.pack.outputs.claude }}
           CODEX_TGZ: ${{ steps.pack.outputs.codex }}
+          OPENCODE_TGZ: ${{ steps.pack.outputs.opencode }}
+          PI_TGZ: ${{ steps.pack.outputs.pi }}
           CLI_TGZ: ${{ steps.pack.outputs.cli }}
         run: |
           proj="$RUNNER_TEMP/consumer"
           mkdir -p "$proj" && cd "$proj"
           echo '{"name":"consumer","private":true}' > package.json
-          npm install --no-audit --no-fund "$CLAUDE_TGZ" "$CODEX_TGZ" "$CLI_TGZ"
+          npm install --no-audit --no-fund "$CLAUDE_TGZ" "$CODEX_TGZ" "$OPENCODE_TGZ" "$PI_TGZ" "$CLI_TGZ"
           bin="$proj/node_modules/.bin/jentrix"
           "$bin" --version | tee /dev/stderr | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+ \(surface: [0-9]+ tools' || { echo "::error::--version lacks the surface count"; exit 1; }
           "$bin" --help | grep -q ' task ' || { echo "::error::generated command tree missing from --help"; exit 1; }
           test ! -d node_modules/@jentrix/cli/plugins || { echo "::error::the CLI tarball still carries plugins/"; exit 1; }
-          for p in claude codex; do
+          for p in claude codex opencode pi; do
             PATH="$(dirname "$(command -v node)")" "$bin" plugin install "$p" --dry-run | tee /dev/stderr | grep -q "node_modules/@jentrix/plugin-$p" || { echo "::error::$p plugin did not resolve from the installed tree"; exit 1; }
           done
 
@@ -223,12 +228,26 @@ jobs:
           TARBALL: ${{ steps.pack.outputs.codex }}
         run: .github/scripts/publish-package.sh "$TARBALL" plugin
 
-      # The CLI goes LAST, and on a tag only after both plugins: its package.json
-      # pins their versions. A dry run continues regardless so the CLI's own
-      # OIDC exchange is observed even while a plugin has no publisher yet.
+      - name: Publish @jentrix/plugin-opencode to `latest`
+        id: plugin_opencode
+        continue-on-error: true
+        env:
+          TARBALL: ${{ steps.pack.outputs.opencode }}
+        run: .github/scripts/publish-package.sh "$TARBALL" plugin
+
+      - name: Publish @jentrix/plugin-pi to `latest`
+        id: plugin_pi
+        continue-on-error: true
+        env:
+          TARBALL: ${{ steps.pack.outputs.pi }}
+        run: .github/scripts/publish-package.sh "$TARBALL" plugin
+
+      # The CLI goes LAST, and on a tag only after all four plugins: its
+      # package.json pins their versions. A dry run continues regardless so the
+      # CLI's own OIDC exchange is observed even while a plugin has no publisher yet.
       - name: Publish @jentrix/cli to `latest`
         id: cli
-        if: github.ref_type != 'tag' || (steps.plugin_claude.outcome == 'success' && steps.plugin_codex.outcome == 'success')
+        if: github.ref_type != 'tag' || (steps.plugin_claude.outcome == 'success' && steps.plugin_codex.outcome == 'success' && steps.plugin_opencode.outcome == 'success' && steps.plugin_pi.outcome == 'success')
         env:
           TARBALL: ${{ steps.pack.outputs.cli }}
         run: .github/scripts/publish-package.sh "$TARBALL" cli
@@ -236,15 +255,15 @@ jobs:
       # The verdict on the plugin steps, AFTER the CLI step ran: a red plugin
       # publish is still a red run (continue-on-error only defers it).
       - name: Verdict on the plugin publishes
-        if: steps.plugin_claude.outcome != 'success' || steps.plugin_codex.outcome != 'success'
+        if: steps.plugin_claude.outcome != 'success' || steps.plugin_codex.outcome != 'success' || steps.plugin_opencode.outcome != 'success' || steps.plugin_pi.outcome != 'success'
         run: |
-          echo "::error::plugin publish failed — plugin-claude: ${{ steps.plugin_claude.outcome }}, plugin-codex: ${{ steps.plugin_codex.outcome }}. A 'POST 404 … package not found' at the OIDC exchange means the package has no trusted publisher registered against jentrix-au/jentrix + release.yml + environment release (docs/releasing.md)."
+          echo "::error::plugin publish failed — plugin-claude: ${{ steps.plugin_claude.outcome }}, plugin-codex: ${{ steps.plugin_codex.outcome }}, plugin-opencode: ${{ steps.plugin_opencode.outcome }}, plugin-pi: ${{ steps.plugin_pi.outcome }}. A 'POST 404 … package not found' at the OIDC exchange means the package has no trusted publisher registered against jentrix-au/jentrix + release.yml + environment release (docs/releasing.md)."
           exit 1
 
       # Green must be a claim about the REGISTRY, not about an exit code. The
       # publish steps above exit 0 on a dry run by design, so without this the
       # only difference between "released" and "released nothing" is a line in
-      # a log nobody reads. Ask npm — for all three, at their own versions.
+      # a log nobody reads. Ask npm — for all five, at their own versions.
       - name: Prove the release is on npm
         if: github.ref_type == 'tag'
         env:
@@ -274,6 +293,8 @@ jobs:
           }
           check @jentrix/plugin-claude "$(node -p 'require("./plugins/claude/package.json").version')"
           check @jentrix/plugin-codex "$(node -p 'require("./plugins/codex/package.json").version')"
+          check @jentrix/plugin-opencode "$(node -p 'require("./plugins/opencode/package.json").version')"
+          check @jentrix/plugin-pi "$(node -p 'require("./plugins/pi/package.json").version')"
           check @jentrix/cli "$CLI_VERSION"
 
       - name: Create GitHub Release

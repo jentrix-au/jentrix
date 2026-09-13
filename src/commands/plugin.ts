@@ -1,6 +1,7 @@
 /**
- * `jentrix plugin install [claude|codex]` — install either official provider
- * plugin so one command covers the whole local toolchain.
+ * `jentrix plugin install [claude|codex|opencode|pi]` — install any official
+ * provider plugin so one command covers the whole local toolchain (the two
+ * plugin hosts, OpenCode and Pi, live in ./plugin-hosts.ts — M2, JEN-537).
  *
  *   npm install -g @jentrix/cli && jentrix plugin install
  *
@@ -25,6 +26,11 @@ import { Command } from "commander";
 
 import { CLI_VERSION } from "../client";
 import { EXIT_CODES } from "../errors";
+import {
+  installHostPlugin,
+  removeHostPlugin,
+  type PluginHost,
+} from "./plugin-hosts";
 
 export interface PluginInvocation {
   code: number;
@@ -32,13 +38,45 @@ export interface PluginInvocation {
   stderr: string;
 }
 
-export type PluginProvider = "claude" | "codex";
+export type PluginProvider = "claude" | "codex" | "opencode" | "pi";
+
+export const PLUGIN_PROVIDERS: readonly PluginProvider[] = [
+  "claude",
+  "codex",
+  "opencode",
+  "pi",
+];
+
+export function isPluginProvider(value: unknown): value is PluginProvider {
+  return (
+    typeof value === "string" &&
+    (PLUGIN_PROVIDERS as readonly string[]).includes(value)
+  );
+}
 
 export interface PluginCommandDeps {
   /** Absolute path of the resolved Claude plugin package dir, or null. */
   resolvePluginDir: () => string | null;
   /** Absolute path of the resolved Codex plugin package dir, or null. */
   resolveCodexPluginDir: () => string | null;
+  // M2 (JEN-537): the plugin hosts. Optional so a probe that predates them
+  // (older tests, a partial client) reports "does not resolve" rather than
+  // failing to construct.
+  /** Absolute path of the resolved OpenCode plugin package dir, or null. */
+  resolveOpenCodePluginDir?: () => string | null;
+  /** Absolute path of the resolved Pi package dir, or null. */
+  resolvePiPluginDir?: () => string | null;
+  /** Absolute path of the `opencode` executable, or null when not on PATH. */
+  resolveOpenCode?: () => Promise<string | null>;
+  /** Absolute path of the `pi` executable, or null when not on PATH. */
+  resolvePi?: () => Promise<string | null>;
+  /** The process environment (XDG_CONFIG_HOME decides OpenCode's config dir). */
+  env?: () => Record<string, string | undefined>;
+  homeDir?: () => string;
+  /** Create a directory (and parents) — the OpenCode plugins folder. */
+  ensureDir?: (path: string) => void;
+  /** Delete one file — `plugin remove opencode`. */
+  deleteFile?: (path: string) => void;
   /**
    * The CLI package root whose `dist/` the hooks are pinned to — the running
    * package, or the persistent global copy under `jentrix setup`'s redirect.
@@ -1030,6 +1068,9 @@ export async function runPluginInstall(
   provider: PluginProvider = "claude",
   options: PluginInstallOptions = {},
 ): Promise<number> {
+  if (provider === "opencode" || provider === "pi") {
+    return installHostPlugin(deps, provider, options, finishInstall);
+  }
   const pluginDir =
     provider === "codex"
       ? deps.resolveCodexPluginDir()
@@ -1259,12 +1300,12 @@ export function registerPluginCommand(
   const plugin = program
     .command("plugin")
     .description(
-      "Manage the official Claude Code and Codex plugins (skills + lifecycle hooks).",
+      "Manage the official Claude Code, Codex, OpenCode and Pi plugins (workflows + lifecycle capture).",
     );
   plugin
     .command("install [provider]")
     .description(
-      "Install (or refresh) the Jentrix plugin into Claude Code (default) or Codex from the plugin package this CLI depends on.",
+      "Install (or refresh) the Jentrix plugin into Claude Code (default), Codex, OpenCode or Pi from the plugin package this CLI depends on.",
     )
     .option(
       "--dry-run",
@@ -1272,12 +1313,10 @@ export function registerPluginCommand(
     )
     .action(
       async (provider: string | undefined, flags: { dryRun?: boolean }) => {
-        if (
-          provider !== undefined &&
-          provider !== "claude" &&
-          provider !== "codex"
-        ) {
-          deps.writeErr('error: provider must be "claude" or "codex"');
+        if (provider !== undefined && !isPluginProvider(provider)) {
+          deps.writeErr(
+            'error: provider must be "claude", "codex", "opencode" or "pi"',
+          );
           onExit(EXIT_CODES.INVALID_INPUT);
           return;
         }
@@ -1288,5 +1327,24 @@ export function registerPluginCommand(
         );
       },
     );
+  plugin
+    .command("remove <provider>")
+    .description(
+      "Remove the Jentrix plugin registration from OpenCode (the managed loader file) or Pi (`pi remove`); Claude Code and Codex are removed through their own plugin commands.",
+    )
+    .action(async (provider: string) => {
+      if (provider === "opencode" || provider === "pi") {
+        onExit(await removeHostPlugin(deps, provider as PluginHost));
+        return;
+      }
+      deps.writeErr(
+        provider === "claude"
+          ? "Claude Code removes its plugins itself: `claude plugin uninstall jentrix@jentrix`, then `claude plugin marketplace remove jentrix`."
+          : provider === "codex"
+            ? "Codex removes its plugins itself: `codex plugin remove jentrix@jentrix`, then `codex plugin marketplace remove jentrix`."
+            : 'error: provider must be "opencode" or "pi"',
+      );
+      onExit(EXIT_CODES.INVALID_INPUT);
+    });
   return plugin;
 }

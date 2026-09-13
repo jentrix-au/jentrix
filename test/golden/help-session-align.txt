@@ -16,6 +16,6 @@ Options:
   --budget <tokens>      per-session token budget
   --no-budget            disarm the token budget
   --provider <provider>  provider of the running session (default: detected from
-                         hooks) (choices: "claude", "codex")
+                         hooks) (choices: "claude", "codex", "opencode", "pi")
   --json                 stable JSON output
   -h, --help             display help for command

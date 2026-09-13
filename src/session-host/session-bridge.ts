@@ -18,8 +18,12 @@ import { join } from "node:path";
 import { withRateLimitRetry } from "../retry.js";
 
 import { withSemanticHeader } from "./semantic-header.js";
-import type { SessionEvent, SessionEventKind } from "./session-events.js";
-import { serializeSessionEvent } from "./session-events.js";
+import {
+  serializeSessionEvent,
+  type SessionEvent,
+  type SessionEventKind,
+  type SessionProvider,
+} from "./session-events.js";
 import type { SessionRedactor } from "./session-redact.js";
 import { SessionSkeleton } from "./session-skeleton.js";
 import type { SessionSpool } from "./session-spool.js";
@@ -59,7 +63,7 @@ export interface SessionBridgeDeps {
    */
   onUnauthorized?: (failedBearer: string) => Promise<unknown>;
   sessionId: string;
-  provider: "claude" | "codex";
+  provider: SessionProvider;
   spool: SessionSpool;
   redactor: SessionRedactor;
   callTool: SessionCallTool;
@@ -189,7 +193,7 @@ export function retryAfterOfResponse(response: {
 export const CARRIED_RANGES_MAX = 150;
 
 export interface CapabilitySnapshot {
-  provider: "claude" | "codex";
+  provider: SessionProvider;
   providerVersion: string | null;
   /** Event classes this provider/mode can emit; the rest are not_observable. */
   observable: SessionEventKind[];
@@ -309,6 +313,9 @@ export class SessionBridge {
    * before the call, not after: a failing re-stamp must not retry every beat.
    */
   private alignmentModelRestamped = false;
+  // The in-flight re-stamp (fire-and-forget from a heartbeat) — awaited by
+  // `complete()` before it reads `updatedAt`, or the CAS on the close races it.
+  private alignmentModelRestamp: Promise<void> | null = null;
   private observingSince: number | null = null;
   private readonly ackedParts = new Map<number, string>();
   private readonly terminalParts = new Set<number>();
@@ -494,6 +501,13 @@ export class SessionBridge {
         const continues =
           messageId !== undefined &&
           this.lastAssistantMessage?.messageId === messageId;
+        // M2 (JEN-537): a plugin-ledger host reports the tool calls a
+        // message made ON the message (OpenCode `finish: tool-calls`, Pi
+        // `stopReason: toolUse`, counted by the plugin), because its tool
+        // events reach the ledger BEFORE the message completes. A host fact,
+        // never a guess: absent, the count starts at 0 as before.
+        const reportedToolCalls = (full.payload as { toolCalls?: unknown })
+          ?.toolCalls;
         this.lastAssistantMessage = {
           text: continues
             ? `${this.lastAssistantMessage!.text}\n${text}`
@@ -502,7 +516,11 @@ export class SessionBridge {
           sequence: full.sequence,
           ...(messageId ? { messageId } : {}),
           ...(turnId ? { turnId } : {}),
-          toolCalls: continues ? this.lastAssistantMessage!.toolCalls : 0,
+          toolCalls: continues
+            ? this.lastAssistantMessage!.toolCalls
+            : typeof reportedToolCalls === "number" && reportedToolCalls > 0
+              ? reportedToolCalls
+              : 0,
         };
       }
     }
@@ -884,9 +902,10 @@ export class SessionBridge {
           `capture: heartbeat rejected (HTTP ${response.status}) — liveness at risk; the sweep may interrupt this session`,
         );
       }
-      if (response.ok && sentModelId) {
-        // Fire-and-forget: a re-stamp must never delay or fail a heartbeat.
-        void this.restampAlignmentModel(sentModelId);
+      if (response.ok && sentModelId && !this.alignmentModelRestamp) {
+        // Fire-and-forget: a re-stamp must never delay or fail a heartbeat —
+        // but it is KEPT so the close can wait for it (below).
+        this.alignmentModelRestamp = this.restampAlignmentModel(sentModelId);
       }
       return response.ok;
     } catch {
@@ -918,6 +937,12 @@ export class SessionBridge {
       const stamped = session.alignmentSnapshot?.agent?.modelId;
       // Already agrees (or names some other model the operator set): leave it.
       if (typeof stamped === "string" && stamped.trim()) return;
+      // JEN-537: not aligned yet — nothing to teach, and the beat that got us
+      // here is usually the flush `jentrix session align` requested a moment
+      // before ITS OWN `align_agent_session`: a re-stamp write now would race
+      // that align into CONFLICT (OpenCode, pack C). The align that follows
+      // copies `session.modelId` — which this beat has just set — by itself.
+      if (typeof session.taskId !== "string" || !session.taskId) return;
       if (typeof session.updatedAt !== "string") return;
       await this.deps.callTool("align_agent_session", {
         sessionId: this.deps.sessionId,
@@ -1468,6 +1493,13 @@ export class SessionBridge {
     // session is still open — the heartbeat route only writes open sessions.
     // Also the close-time usage flush the Codex host used to make on its own.
     await this.flushUsageNow().catch(() => false);
+    // JEN-537 (Pi native trial): that forced beat is often the FIRST to carry
+    // a model on a host that learns it late (Pi: at `turn_end`), so it starts
+    // the alignment re-stamp — a write that moves `updatedAt`. Wait for it
+    // before reading the row below, or the close's CAS lands on a stale
+    // `expectedUpdatedAt` and the session falls back to a server-side close
+    // without this host's coverage and final-output declaration.
+    await this.alignmentModelRestamp;
     this.flushSkeletonSnapshot();
     // AGE-649: BEFORE the completion call — `COMPLETED` seals the session
     // against typed pushes, so there is no "after" for this. R01: durable,

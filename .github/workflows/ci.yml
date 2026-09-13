@@ -1,7 +1,7 @@
 name: ci
 
 # The one continuous-integration lane of the open client (jentrix-au/jentrix):
-# the CLI package at the repository root and the two official plugin packages
+# the CLI package at the repository root and the four official plugin packages
 # under plugins/. Every push and pull request runs the same gates a release
 # runs, INCLUDING the cold-install smoke of the packed tarballs — a change that
 # only breaks the published artifact must go red here, not on a customer's
@@ -52,9 +52,9 @@ jobs:
         run: node scripts/check-version.mjs "$(node -p 'require("./package.json").version')"
 
       # Unit tests PLUS the cold-install smoke, always on: `pnpm -r pack` the
-      # three packages, install the exact tarballs together into an empty
-      # project, run the installed `jentrix` bin, and stage both plugin
-      # packages from its dependency tree with `plugin install <p> --dry-run`.
+      # five packages, install the exact tarballs together into an empty
+      # project, run the installed `jentrix` bin, and stage every plugin
+      # package from its dependency tree with `plugin install <p> --dry-run`.
       - name: Unit tests and cold-install smoke (packed tarballs)
         run: CLI_PACK_SMOKE=1 pnpm test
 

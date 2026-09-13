@@ -1,10 +1,19 @@
 # Hooks and the trust model
 
-Both official plugins ship **hooks**: commands the coding agent runs at
-lifecycle events (session start and end, prompt submit, tool use, compaction).
-They are what binds a Claude Code or Codex session to a Jentrix session so the
-work is recorded against the right task. A hook runs on your machine with
-your user, so the rules below are the security model, not style.
+The Claude Code and Codex plugins ship **hooks**: commands the coding agent
+runs at lifecycle events (session start and end, prompt submit, tool use,
+compaction). They are what binds a Claude Code or Codex session to a Jentrix
+session so the work is recorded against the right task. A hook runs on your
+machine with your user, so the rules below are the security model, not style.
+
+The OpenCode and Pi plugins (M2) run **inside the agent process** instead of
+as hook commands: they append the same ledger lines directly (no argument
+list at all), start no process except `jentrix session snapshot` at a
+compaction boundary, and never touch the network. What they record is the
+same lifecycle, prompt, tool, message and token-receipt evidence, under the
+same capture consent; the identity handoff is `OPENCODE_SESSION_ID`
+(injected by the plugin's `shell.env` hook) and Pi's own `PI_SESSION_ID`.
+Both load at agent startup, so the only "trust" step is the install itself.
 
 ## What the hooks are
 

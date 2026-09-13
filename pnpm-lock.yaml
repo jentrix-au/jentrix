@@ -14,6 +14,12 @@ importers:
       '@jentrix/plugin-codex':
         specifier: workspace:*
         version: link:plugins/codex
+      '@jentrix/plugin-opencode':
+        specifier: workspace:*
+        version: link:plugins/opencode
+      '@jentrix/plugin-pi':
+        specifier: workspace:*
+        version: link:plugins/pi
       '@modelcontextprotocol/sdk':
         specifier: ~1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -43,6 +49,10 @@ importers:
   plugins/claude: {}
 
   plugins/codex: {}
+
+  plugins/opencode: {}
+
+  plugins/pi: {}
 
 packages:
 

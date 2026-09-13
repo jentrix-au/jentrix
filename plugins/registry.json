@@ -1,6 +1,6 @@
 {
   "registryVersion": 1,
-  "behaviorRevision": "2026.09.13-2",
+  "behaviorRevision": "2026.09.13-3",
   "semanticSchemaRevision": 1,
   "hosts": {
     "claude": {
@@ -16,7 +16,9 @@
         "src/session-host/session-claude-transcript.ts",
         "src/session-host/session-claude-timing.ts"
       ],
-      "ownedPaths": ["plugins/claude/"]
+      "ownedPaths": [
+        "plugins/claude/"
+      ]
     },
     "codex": {
       "status": "enrolled",
@@ -31,24 +33,56 @@
         "src/session-host/session-codex-events.ts",
         "src/session-host/session-codex-hooks.ts"
       ],
-      "ownedPaths": ["plugins/codex/"]
+      "ownedPaths": [
+        "plugins/codex/"
+      ]
     },
     "opencode": {
-      "status": "planned",
+      "status": "enrolled",
       "package": "@jentrix/plugin-opencode",
       "packageDir": "plugins/opencode",
-      "plannedIn": "JEN-537",
-      "ownedPaths": ["plugins/opencode/"]
+      "manifest": "plugins/opencode/manifest.json",
+      "hooks": "plugins/opencode/hooks/hooks.json",
+      "entry": "plugins/workflows/opencode-entry.md",
+      "workflowPath": "commands/jentrix-{name}.md",
+      "prefix": "/",
+      "adapterPaths": [
+        "src/session-host/session-opencode-hooks.ts",
+        "plugins/opencode/src/index.js"
+      ],
+      "ownedPaths": [
+        "plugins/opencode/"
+      ],
+      "enrolledIn": "JEN-537"
     },
     "pi": {
-      "status": "planned",
+      "status": "enrolled",
       "package": "@jentrix/plugin-pi",
       "packageDir": "plugins/pi",
-      "plannedIn": "JEN-537",
-      "ownedPaths": ["plugins/pi/"]
+      "manifest": "plugins/pi/manifest.json",
+      "hooks": "plugins/pi/hooks/hooks.json",
+      "entry": "plugins/workflows/pi-entry.md",
+      "workflowPath": "commands/jentrix-{name}.md",
+      "prefix": "/",
+      "adapterPaths": [
+        "src/session-host/session-pi-hooks.ts",
+        "plugins/pi/src/index.js"
+      ],
+      "ownedPaths": [
+        "plugins/pi/"
+      ],
+      "enrolledIn": "JEN-537"
     }
   },
-  "workflows": ["connect", "align", "plan", "checkpoint", "review", "status", "end"],
+  "workflows": [
+    "connect",
+    "align",
+    "plan",
+    "checkpoint",
+    "review",
+    "status",
+    "end"
+  ],
   "behaviors": {
     "P01": "Connect the current host session; folder binding supplies the workspace",
     "P02": "Align by task key or id with an accountable owner; server snapshot echoed verbatim",
@@ -88,8 +122,19 @@
     "scripts/check-plugin-sync.mjs"
   ],
   "requiredChecks": {
-    "ci": ["pnpm typecheck", "scripts/check-version.mjs", "CLI_PACK_SMOKE=1 pnpm test", "pnpm validate:examples", "pnpm check:plugin-sync"],
-    "release": ["scripts/check-version.mjs", "pnpm typecheck", "pnpm test", "pnpm check:plugin-sync --packed"]
+    "ci": [
+      "pnpm typecheck",
+      "scripts/check-version.mjs",
+      "CLI_PACK_SMOKE=1 pnpm test",
+      "pnpm validate:examples",
+      "pnpm check:plugin-sync"
+    ],
+    "release": [
+      "scripts/check-version.mjs",
+      "pnpm typecheck",
+      "pnpm test",
+      "pnpm check:plugin-sync --packed"
+    ]
   },
   "conformanceSuite": "test/plugin-sync-conformance.test.ts",
   "scenarios": [
@@ -100,6 +145,8 @@
     "S-R05-tool-correlation",
     "S-R06-skeleton-cmd-and-absolute-paths",
     "S-R06-skeleton-overflow-exact",
-    "S-R07-prompt-truncation-declared"
+    "S-R07-prompt-truncation-declared",
+    "S-R05-plugin-ledger-receipts",
+    "S-R11-plugin-runtime-fixtures"
   ]
 }

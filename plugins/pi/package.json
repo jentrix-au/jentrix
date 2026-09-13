@@ -1,0 +1,59 @@
+{
+  "name": "@jentrix/plugin-pi",
+  "version": "0.1.0",
+  "description": "The official Jentrix package for Pi: connected-session extension commands and the lifecycle/token-receipt ledger the Jentrix CLI's session host reads (jentrix plugin install pi).",
+  "keywords": [
+    "jentrix",
+    "pi",
+    "pi-package",
+    "plugin",
+    "sessions",
+    "agents"
+  ],
+  "homepage": "https://github.com/jentrix-au/jentrix",
+  "bugs": {
+    "url": "https://github.com/jentrix-au/jentrix/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jentrix-au/jentrix.git",
+    "directory": "plugins/pi"
+  },
+  "license": "MIT",
+  "author": "Jentrix",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json",
+    "./manifest.json": "./manifest.json"
+  },
+  "files": [
+    "src/",
+    "commands/",
+    "hooks/",
+    "manifest.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": [
+      "src/index.js"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/generate-workflows.mjs --check"
+  },
+  "jentrix": {
+    "host": "pi",
+    "behaviorRevision": "2026.09.13-3",
+    "semanticSchemaRevision": 1,
+    "resourceDigest": "115945bd3f9d211f99ac37b4cc868b16e53972d8d14da237e81ac490b4ab41a4",
+    "cliRange": ">=0.11.0 <1.0.0"
+  }
+}

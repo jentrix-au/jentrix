@@ -96,10 +96,12 @@
       "required": true,
       "propertyRequired": true,
       "description": "",
-      "helpText": "(choices: claude, codex)",
+      "helpText": "(choices: claude, codex, opencode, pi)",
       "choices": [
         "claude",
-        "codex"
+        "codex",
+        "opencode",
+        "pi"
       ],
       "repeatable": false,
       "takesValue": true,

@@ -243,6 +243,15 @@ for (const file of listFiles(changesDir).filter((f) => f.endsWith(".json"))) {
       if (!d.plannedIn) fail("G02", `${rel}: planned host ${hostName} needs plannedIn`);
       continue;
     }
+    if (d.disposition === "planned") {
+      // A record written while this host was still planned keeps its
+      // `planned` disposition as history — valid only when it names the very
+      // task that later enrolled the host (registry `enrolledIn`); the
+      // enrolment record itself carries that host's real disposition.
+      if (host.enrolledIn && d.plannedIn === host.enrolledIn) continue;
+      fail("G02", `${rel}: host ${hostName} is enrolled but the record says planned${d.plannedIn ? ` (plannedIn ${d.plannedIn} ≠ enrolledIn ${host.enrolledIn ?? "none"})` : " with no plannedIn"} — give it a real disposition`);
+      continue;
+    }
     if (!DISPOSITIONS_ENROLLED.has(d.disposition))
       fail("G02", `${rel}: host ${hostName}: unknown disposition ${d.disposition}`);
     if (d.disposition === "verified-unaffected") {

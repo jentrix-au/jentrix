@@ -29,23 +29,26 @@ import {
 } from "../tool-client";
 import { requireFolderBinding } from "../binding";
 import { randomUUID } from "node:crypto";
+import type { SessionProvider } from "../session-host/session-events";
 import {
-  readClaudeHookContext,
-  readCodexHookContext,
+  hookLedgerOffset,
+  hooksDir,
   readClaudeHookTranscript,
   readCodexRolloutPath,
-  hooksDir,
+  readProviderHookContext,
 } from "./provider-context";
 
 export async function runSessionStart(
-  provider: "claude" | "codex",
+  provider: SessionProvider,
   flags: SessionStartFlags,
   deps: SessionCommandDeps,
 ): Promise<number> {
   // Unsupported launch must be inert even with --resume or a broken config.
-  if (provider === "codex") {
+  // Only Claude Code is launched by the host (M2: OpenCode and Pi are started
+  // by the operator and connected beside, exactly like Codex).
+  if (provider !== "claude") {
     deps.writeErr(
-      "CODEX_LAUNCH_UNAVAILABLE: start Codex normally, then run `jentrix session connect --provider codex`.",
+      `${provider.toUpperCase()}_LAUNCH_UNAVAILABLE: start ${provider} normally, then run \`jentrix session connect --provider ${provider}\`.`,
     );
     return EXIT_CODES.INVALID_INPUT;
   }
@@ -155,21 +158,16 @@ export async function runSessionConnect(
   try {
     const provider = flags.provider;
     if (!provider) {
-      throw new UsageError("--provider claude|codex is required for connect");
+      throw new UsageError(
+        "--provider claude|codex|opencode|pi is required for connect",
+      );
     }
     let hookDir: string | null = null;
-    if (!flags.providerSession && flags.provider === "claude") {
-      // The /jentrix-connect path: the plugin's lifecycle hooks recorded the
-      // trusted session context for this checkout.
-      const hookContext = readClaudeHookContext(deps);
-      if (hookContext) {
-        flags.providerSession = hookContext.sessionId;
-        if (!flags.transcriptPath && hookContext.transcriptPath) {
-          flags.transcriptPath = hookContext.transcriptPath;
-        }
-      }
-    } else if (!flags.providerSession && flags.provider === "codex") {
-      const hookContext = readCodexHookContext(deps);
+    if (!flags.providerSession) {
+      // The /jentrix-connect path: the plugin's lifecycle hooks (Claude,
+      // Codex) or its in-process ledger (OpenCode, Pi) recorded the trusted
+      // session context for this checkout.
+      const hookContext = readProviderHookContext(deps, provider);
       if (hookContext) {
         flags.providerSession = hookContext.sessionId;
         if (!flags.transcriptPath && hookContext.transcriptPath) {
@@ -276,7 +274,7 @@ export async function runSessionConnect(
       }
       if (
         (flags.provider === "claude" && flags.transcriptPath) ||
-        (flags.provider === "codex" && hookDir)
+        (flags.provider !== "claude" && hookDir)
       ) {
         // D18: no bearer in the plan — the config reference (rotation-
         // following) or the child env carries the credential.
@@ -295,7 +293,7 @@ export async function runSessionConnect(
           ...(flags.transcriptPath
             ? { transcriptPath: flags.transcriptPath }
             : {}),
-          ...(hookDir ? { hookDir } : {}),
+          ...(hookDir ? { hookDir, hookOffset: hookLedgerOffset(hookDir) } : {}),
           // Capture begins at attachment; --import-history tails from byte 0.
           importHistory: Boolean(flags.importHistory),
           // JEN-457: the host starts under the RESOLVED mode. Omitting these

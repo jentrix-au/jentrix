@@ -1196,3 +1196,110 @@ test("F03: a record that cannot be written is REPORTED in the close's coverage, 
   assert.match(String(legacy.reason), /carries no output text/);
   void toolCalls;
 });
+
+// JEN-537 (Pi native trial): a host that learns the model LATE (Pi reports it
+// at `turn_end`, after connect and align have already run inside the first
+// turn) sends its first model-carrying beat from `complete()`'s own forced
+// flush. That beat started the alignment re-stamp fire-and-forget, the close
+// read `updatedAt` while the re-stamp was still in flight, and the CAS on
+// `complete_agent_session` lost — the CLI then closed the session server-side
+// without this host's coverage and final-output declaration.
+test("complete waits for the in-flight alignment re-stamp before it reads updatedAt (JEN-537)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-restamp-"));
+  let updatedAt = "2026-09-13T10:00:00.000Z";
+  let releaseAlign: () => void = () => undefined;
+  const aligned = new Promise<void>((resolve) => {
+    releaseAlign = resolve;
+  });
+  const order: string[] = [];
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_restamp",
+    provider: "pi",
+    spool: new SessionSpool(root, "ses_restamp"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    traceCapture: false,
+    callTool: async (name, args) => {
+      order.push(name);
+      if (name === "get_agent_session") {
+        return { updatedAt, taskId: "task_1", alignmentSnapshot: { agent: { modelId: null } } };
+      }
+      if (name === "align_agent_session") {
+        // The re-stamp is a slow write that moves the row's updatedAt.
+        await aligned;
+        updatedAt = "2026-09-13T10:00:05.000Z";
+        return {};
+      }
+      if (name === "complete_agent_session") {
+        // The server processes the requests in the order they were sent: the
+        // re-stamp (sent first) lands before this close is evaluated.
+        await aligned;
+        if (args.expectedUpdatedAt !== updatedAt) {
+          throw new Error("complete_agent_session failed: CONFLICT session changed since your last read; re-read and retry");
+        }
+        return { status: "COMPLETED", captureComplete: true };
+      }
+      return {};
+    },
+    fetchImpl: (async () => new Response("{}", { status: 200 })) as typeof fetch,
+    monotonic: (() => {
+      let t = 30_000;
+      return () => (t += 1000);
+    })(),
+  });
+  // The model arrives with the first receipt — after connect/align ran.
+  bridge.observeModel("jentrix-stub/stub-model");
+  bridge.record({
+    kind: "usage",
+    payload: { kind: "delta", inputTokens: 10, outputTokens: 2, modelId: "jentrix-stub/stub-model" },
+  });
+  // Let the re-stamp's write land only once the close has had a chance to
+  // (wrongly) read the row first.
+  setTimeout(() => releaseAlign(), 20);
+  const result = await bridge.complete({
+    outcome: "COMPLETED",
+    end: { branch: "main", head: "abc", dirty: false },
+  });
+  assert.equal(result.status, "COMPLETED");
+  const completeAt = order.lastIndexOf("complete_agent_session");
+  const alignAt = order.indexOf("align_agent_session");
+  const readAt = order.lastIndexOf("get_agent_session");
+  assert.ok(alignAt >= 0, `the forced beat re-stamped the alignment: ${order.join(" → ")}`);
+  assert.ok(alignAt < readAt && readAt < completeAt, `close read the row AFTER the re-stamp: ${order.join(" → ")}`);
+});
+
+// JEN-537 (OpenCode, pack C): the beat that first carries a model is the
+// usage flush `jentrix session align` requests right before its own
+// `align_agent_session`. A re-stamp of a NOT-YET-ALIGNED session is a write
+// with nothing to teach that raced that align into CONFLICT.
+test("no alignment re-stamp while the session is unaligned (JEN-537)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stacks-restamp-unaligned-"));
+  const calls: string[] = [];
+  const bridge = new SessionBridge({
+    jentrixBaseUrl: "https://stacks.test",
+    bearer: "tm_test",
+    sessionId: "ses_unaligned",
+    provider: "opencode",
+    spool: new SessionSpool(root, "ses_unaligned"),
+    redactor: createSessionRedactor({ env: {}, homedir: null }),
+    traceCapture: false,
+    callTool: async (name) => {
+      calls.push(name);
+      if (name === "get_agent_session") {
+        return { updatedAt: "2026-09-13T10:00:00.000Z", taskId: null, alignmentSnapshot: null };
+      }
+      return {};
+    },
+    fetchImpl: (async () => new Response("{}", { status: 200 })) as typeof fetch,
+    monotonic: (() => {
+      let t = 30_000;
+      return () => (t += 1000);
+    })(),
+  });
+  bridge.observeModel("jentrix-stub/stub-model");
+  bridge.record({ kind: "usage", payload: { kind: "delta", inputTokens: 10, outputTokens: 2 } });
+  assert.equal(await bridge.flushUsageNow(), true);
+  await (bridge as unknown as { alignmentModelRestamp: Promise<void> | null }).alignmentModelRestamp;
+  assert.deepEqual(calls, ["get_agent_session"], "read the row, wrote nothing");
+});

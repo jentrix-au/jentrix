@@ -28,6 +28,7 @@ import { Command } from "commander";
 
 import { CLI_VERSION } from "../client";
 import { EXIT_CODES } from "../errors";
+import type { PluginProvider } from "./plugin";
 import { planMcpServerEntry, renderMcpConfig } from "../mcp-config";
 import type { GitRunner } from "../repo";
 
@@ -97,6 +98,9 @@ export interface SetupCommandDeps {
   resolveNpm(): Promise<string | null>;
   resolveClaude(): Promise<string | null>;
   resolveCodex(): Promise<string | null>;
+  /** M2 (JEN-537): the plugin hosts; optional so older callers still compile. */
+  resolveOpenCode?(): Promise<string | null>;
+  resolvePi?(): Promise<string | null>;
   resolveGit(): Promise<string | null>;
   invoke(
     file: string,
@@ -110,7 +114,7 @@ export interface SetupCommandDeps {
    * shelling out to a second `jentrix` would run a different build than the
    * one the operator just installed.
    */
-  installPlugin(provider: "claude" | "codex"): Promise<number>;
+  installPlugin(provider: PluginProvider): Promise<number>;
   /** Is a token resolvable (env / config file)? */
   hasCredential(): boolean;
   /** The endpoint this machine is signed in to, or null when it is not. */
@@ -362,6 +366,26 @@ const RUNTIMES = [
     absent: [
       "note: the `codex` CLI is not installed — skipped its plugin and MCP server.",
       "      Install Codex (https://developers.openai.com/codex/cli), then re-run this command.",
+    ],
+  },
+  // M2 (JEN-537): the two plugin hosts. Absent is a note, never a failure —
+  // most machines have one or two agents, not four.
+  {
+    provider: "opencode" as const,
+    resolve: (deps: SetupCommandDeps) =>
+      deps.resolveOpenCode?.() ?? Promise.resolve(null),
+    absent: [
+      "note: the `opencode` CLI is not installed — skipped its plugin.",
+      "      Install OpenCode (https://opencode.ai), then run: jentrix plugin install opencode",
+    ],
+  },
+  {
+    provider: "pi" as const,
+    resolve: (deps: SetupCommandDeps) =>
+      deps.resolvePi?.() ?? Promise.resolve(null),
+    absent: [
+      "note: the `pi` CLI is not installed — skipped its package.",
+      "      Install Pi (npm install -g @earendil-works/pi-coding-agent), then run: jentrix plugin install pi",
     ],
   },
 ];
@@ -819,7 +843,8 @@ export async function runSetupCommand(
   say(deps, "Next: open your agent in the checkout and connect —");
   say(deps, "  Claude Code:  /jentrix-connect");
   say(deps, "  Codex:        $jentrix-connect");
-  say(deps, "  any terminal: jentrix session connect --provider claude|codex");
+  say(deps, "  OpenCode/Pi:  /jentrix-connect  (restart the agent once after install)");
+  say(deps, "  any terminal: jentrix session connect --provider claude|codex|opencode|pi");
   say(
     deps,
     "then anchor its work: jentrix session align --task <id-or-key>  (or --session-level)",

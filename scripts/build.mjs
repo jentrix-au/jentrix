@@ -11,7 +11,9 @@
  *
  * The provider plugins are NOT part of this build. Since open-client S3 they
  * are their own workspace packages (`@jentrix/plugin-claude` in
- * plugins/claude, `@jentrix/plugin-codex` in plugins/codex) that this package
+ * plugins/claude, `@jentrix/plugin-codex` in plugins/codex, and since M2
+ * `@jentrix/plugin-opencode` in plugins/opencode and `@jentrix/plugin-pi` in
+ * plugins/pi) that this package
  * depends on with exact pins; `main.ts` resolves their directories through
  * module resolution at run time, never by a path next to dist/. Nothing is
  * copied anywhere (the old `cpSync` from `../agents` went with v2 §18).

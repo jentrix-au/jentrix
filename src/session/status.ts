@@ -1,6 +1,10 @@
 /** Session status. */
 import { type SessionCommandDeps } from "./deps";
 import {
+  asSessionProvider,
+  type SessionProvider,
+} from "../session-host/session-events";
+import {
   readAlignmentMarker,
   localConnectionKey,
   findAlignmentMarkerForSession,
@@ -10,6 +14,7 @@ import {
   readCurrentProviderHookContext,
   telemetrySourceForSessionRow,
   telemetrySourceLines,
+  PLUGIN_HOST_LABEL,
 } from "./provider-context";
 import { inspectRepository } from "../repo";
 import { type SessionToolCaller, callStructured as call } from "../tool-client";
@@ -190,7 +195,7 @@ export async function runSessionStatus(
       // transcripts, so `status` states it — a session whose host has been
       // running for 20 minutes with nothing attributed is repairable NOW and
       // unrepairable after the close.
-      const provider = session.provider === "codex" ? "codex" : "claude";
+      const provider = asSessionProvider(session.provider) ?? "claude";
       const telemetry = telemetryVerdict(
         String(session.id),
         session.usage,
@@ -368,7 +373,7 @@ export function telemetryVerdict(
   sessionId: string,
   usage: unknown,
   hostRan: boolean,
-  provider: "claude" | "codex" = "claude",
+  provider: SessionProvider = "claude",
 ): TelemetryVerdict {
   const u = isRecord(usage) ? usage : {};
   const num = (key: string) =>
@@ -397,10 +402,14 @@ export function telemetryVerdict(
       warning: null,
     };
   }
-  if (provider === "codex" && hostRan) {
+  if (provider !== "claude" && hostRan) {
     return {
       state: "unavailable",
-      line: `Telemetry: token usage unavailable — no Codex rollout receipt was observed${wallPart}${coveragePart}`,
+      line: `Telemetry: token usage unavailable — no ${
+        provider === "codex"
+          ? "Codex rollout receipt"
+          : `${PLUGIN_HOST_LABEL[provider]} plugin usage receipt`
+      } was observed${wallPart}${coveragePart}`,
       warning: null,
     };
   }

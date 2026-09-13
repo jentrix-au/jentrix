@@ -7,17 +7,18 @@ changes, installation changes and regression fixes. For a small custom workflow,
 test its declared capabilities and coexistence; do not pretend it implements an
 official lifecycle adapter.
 
-The deployed M1 baseline covers the existing Claude Code and Codex integrations.
-Use this runbook to validate changes against that baseline and to establish a
-new plugin's declared support. M1 deployment does not prove an untested operating
-system, third-party plugin or new host. OpenCode and Pi remain planned.
+The deployed baseline covers the four official integrations: Claude Code and
+Codex (M1) and OpenCode and Pi (M2). Use this runbook to validate changes
+against that baseline and to establish a new plugin's declared support. A
+deployment does not prove an untested operating system, third-party plugin or
+new host.
 Keep one explicit requirement matrix for the change; record unsupported and
 unexercised cases separately from passing cases.
 
 ## Prerequisites and baseline
 
 Use Node.js 20 or later, pnpm 11 for the open-client development checkout, and
-the exact Claude Code or Codex build you intend to support. Prepare a dedicated
+the exact Claude Code, Codex, OpenCode or Pi build you intend to support. Prepare a dedicated
 test workspace and disposable repository/profile with synthetic content. Sign
 in with an account that can read and write that workspace; keep credentials out
 of commands and recorded artifacts.
