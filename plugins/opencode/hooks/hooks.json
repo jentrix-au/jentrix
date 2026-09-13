@@ -1,0 +1,37 @@
+{
+  "provider": "opencode",
+  "description": "The OpenCode hooks the Jentrix plugin subscribes to (it runs in-process — nothing here is a command OpenCode executes) and the ledger lines it appends for the Jentrix session host. Credentials and transcript bytes never leave the machine through this plugin; the ledger is 0600 under the operator's home.",
+  "subscribes": [
+    "config",
+    "shell.env",
+    "chat.message",
+    "command.execute.before",
+    "tool.execute.before",
+    "tool.execute.after",
+    "event",
+    "experimental.session.compacting",
+    "dispose"
+  ],
+  "ledger": "~/.config/stacks/opencode-sessions/hooks.ndjson",
+  "writes": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "TurnStart",
+    "TurnEnd",
+    "PostToolUse",
+    "Stop",
+    "Usage",
+    "PreCompact",
+    "PostCompact",
+    "Error",
+    "SessionEnd"
+  ],
+  "env": {
+    "OPENCODE_SESSION_ID": "this session's id, injected into every bash tool command",
+    "JENTRIX_PROVIDER": "opencode"
+  },
+  "snapshot": [
+    "jentrix session snapshot --event PreCompact",
+    "jentrix session snapshot --event PostCompact"
+  ]
+}

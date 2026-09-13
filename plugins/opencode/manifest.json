@@ -1,0 +1,10 @@
+{
+  "name": "jentrix",
+  "version": "0.1.0",
+  "host": "opencode",
+  "description": "Connect OpenCode sessions to Jentrix: seven /jentrix-* commands registered through the plugin config hook, trusted session identity handed to every bash command, and a lifecycle + token-receipt ledger the Jentrix CLI's session host reads.",
+  "entry": "src/index.js",
+  "export": "JentrixOpenCodePlugin",
+  "commands": "commands",
+  "minHostVersion": "1.18.9"
+}

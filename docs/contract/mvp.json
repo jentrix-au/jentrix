@@ -1,6 +1,6 @@
 {
   "_generated": "pnpm gen:contract — do not edit",
-  "apiRelease": "1.4.0",
+  "apiRelease": "1.6.0",
   "generatedForToolCount": 73,
   "surface": "mvp",
   "tools": [
@@ -354,7 +354,9 @@
           "provider": {
             "enum": [
               "claude",
-              "codex"
+              "codex",
+              "opencode",
+              "pi"
             ],
             "type": "string"
           },
@@ -968,6 +970,59 @@
             ],
             "description": "CLI-counted commits in startHead..endHead; absent = not counted (HEAD movement is then the only signal)."
           },
+          "coverage": {
+            "description": "R05: capture coverage by class — observed event kinds, host-unsupported kinds, kinds omitted by capture consent, declared truncations, and failures.",
+            "properties": {
+              "failed": {
+                "items": {
+                  "maxLength": 400,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              "observed": {
+                "items": {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              "omittedByConsent": {
+                "items": {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              "truncated": {
+                "items": {
+                  "maxLength": 400,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              "unsupported": {
+                "items": {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              }
+            },
+            "required": [
+              "observed",
+              "unsupported",
+              "omittedByConsent",
+              "truncated",
+              "failed"
+            ],
+            "type": "object"
+          },
           "endBranch": {
             "anyOf": [
               {
@@ -1002,11 +1057,50 @@
               }
             ]
           },
+          "endTreeDigest": {
+            "description": "R04: sha256 digest of the scoped working-tree delta at close — a clean tree has one too; absent only when the checkout could not be read or the client predates the contract. Verification receipts bind to it (E4).",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
           "expectedUpdatedAt": {
             "description": "REQUIRED optimistic concurrency guard: the session's updatedAt from your last read; a mismatch fails with CONFLICT embedding the current state.",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
+          },
+          "finalOutput": {
+            "anyOf": [
+              {
+                "properties": {
+                  "artifactId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "attemptId": {
+                    "maxLength": 200,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "artifactId"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "missing": {
+                    "maxLength": 400,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "missing"
+                ],
+                "type": "object"
+              }
+            ],
+            "description": "R01: the host's acknowledged final-output artifact for this close, or `{ missing: <reason> }` when none was preserved (evidence check E5 refuses a declared gap with no explicit final on record). Absent = client predates the contract."
           },
           "manifest": {
             "description": "Expected TRACE parts; capture is complete only when every part is acknowledged server-side.",
@@ -1050,6 +1144,11 @@
             "type": "string"
           },
           "sessionId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "uncommittedPatchArtifactId": {
+            "description": "R04: the attested uncommitted-patch DIFF `jentrix session end --preserve-uncommitted` pushed before this close.",
             "minLength": 1,
             "type": "string"
           },
@@ -1358,7 +1457,9 @@
           "provider": {
             "enum": [
               "claude",
-              "codex"
+              "codex",
+              "opencode",
+              "pi"
             ],
             "type": "string"
           },
@@ -1950,7 +2051,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity (cosine in [0,1]; ≥0.78 reads as related evidence), a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured.",
+      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity, a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. similarity is cosine in [0,1] and its SCALE depends on the mode: by taskId (document vs document) ≥0.78 reads as related evidence; by query the text is embedded as a QUERY and scores run lower — treat the result as a ranking, read the top hits, and do not apply the by-task number to it. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured.",
       "inputSchema": {
         "properties": {
           "limit": {
@@ -2026,7 +2127,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find tasks SEMANTICALLY similar to an existing task (pass taskId) or to free text (pass workspaceId + query) via vector embeddings — catches duplicates and related work that keyword search misses. similarity is cosine in [0,1]; ≥0.8 is a strong duplicate candidate (link with add_task_link kind DUPLICATES). Embeddings refresh every ~5 minutes, so very recent edits may not match yet; falls back to an empty result with a notice when semantic search is not configured.",
+      "description": "Find tasks SEMANTICALLY similar to an existing task (pass taskId) or to free text (pass workspaceId + query) via vector embeddings — catches duplicates and related work that keyword search misses. similarity is cosine in [0,1] and its SCALE depends on the mode: by taskId (document vs document) ≥0.8 is a strong duplicate candidate (link with add_task_link kind DUPLICATES); by query the text is embedded as a QUERY and scores run lower — treat the result as a ranking, read the top hits, and do not apply the by-task number to it. Embeddings refresh every ~5 minutes, so very recent edits may not match yet; falls back to an empty result with a notice when semantic search is not configured.",
       "inputSchema": {
         "properties": {
           "limit": {
@@ -2635,7 +2736,9 @@
           "provider": {
             "enum": [
               "claude",
-              "codex"
+              "codex",
+              "opencode",
+              "pi"
             ],
             "type": "string"
           },

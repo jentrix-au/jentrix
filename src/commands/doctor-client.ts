@@ -13,6 +13,7 @@
 import { dirname, join } from "node:path";
 
 import { CLI_VERSION } from "../client";
+import { hostPluginState, samePath } from "./plugin-hosts";
 import { createSessionRedactor } from "../session-host/session-redact";
 import {
   hookFilePath,
@@ -346,6 +347,9 @@ function readJson(
 const MANIFEST: Record<PluginProvider, string> = {
   claude: join(".claude-plugin", "plugin.json"),
   codex: join("plugins", "jentrix", ".codex-plugin", "plugin.json"),
+  // M2 (JEN-537): neither host has a manifest format; the package carries one.
+  opencode: "manifest.json",
+  pi: "manifest.json",
 };
 
 /** `jentrix.behaviorRevision` off a package.json, or null when unstamped. */
@@ -428,11 +432,18 @@ export async function clientChecks(
     { pluginDir: string; version: string | null; revision: string | null }
   >();
 
-  for (const provider of ["claude", "codex"] as const) {
+  for (const provider of ["claude", "codex", "opencode", "pi"] as const) {
+    // M2: a probe without the plugin-host resolvers reports nothing for them.
+    if (provider === "opencode" && !client.resolveOpenCodePluginDir) continue;
+    if (provider === "pi" && !client.resolvePiPluginDir) continue;
     const pluginDir =
       provider === "codex"
         ? client.resolveCodexPluginDir()
-        : client.resolvePluginDir();
+        : provider === "opencode"
+          ? client.resolveOpenCodePluginDir!()
+          : provider === "pi"
+            ? client.resolvePiPluginDir!()
+            : client.resolvePluginDir();
     const pkg = `@jentrix/plugin-${provider}`;
     if (pluginDir === null) {
       checks.push({
@@ -468,6 +479,44 @@ export async function clientChecks(
             fix: "reinstall: npm i -g @jentrix/cli",
           },
     );
+
+    if (provider === "opencode" || provider === "pi") {
+      // M2 (JEN-537): no marketplace and no hook commands to pin. The host
+      // loads the plugin from ONE registration — OpenCode's managed loader
+      // file, Pi's settings row — and that registration names the copy that
+      // is LOADED, which the behaviour-revision check compares.
+      const state = await hostPluginState(client, provider, pluginDir);
+      const reg = state.registration;
+      if (reg.kind === "loader") {
+        checks.push(
+          reg.state === "managed" && reg.target !== null && samePath(reg.target, pluginDir)
+            ? { name: `loader ${provider}`, status: "ok", detail: `managed loader ${reg.path} → ${reg.target}` }
+            : reg.state === "managed"
+              ? { name: `loader ${provider}`, status: "warn", detail: `managed loader ${reg.path} points at ${reg.target} — an earlier copy, not this package`, fix: `jentrix plugin install ${provider}` }
+              : reg.state === "foreign"
+                ? { name: `loader ${provider}`, status: "warn", detail: `${reg.path} exists but was not written by this CLI — official support stops at the API boundary; move it aside, then \`jentrix plugin install ${provider}\`` }
+                : { name: `loader ${provider}`, status: "warn", detail: `no managed loader at ${reg.path} — OpenCode sessions load no Jentrix plugin`, fix: `jentrix plugin install ${provider}` },
+        );
+      } else {
+        checks.push(
+          reg.state === "present"
+            ? { name: `package ${provider}`, status: "ok", detail: reg.detail }
+            : reg.state === "absent"
+              ? { name: `package ${provider}`, status: "warn", detail: `${reg.detail} — Pi sessions load no Jentrix extension`, fix: `jentrix plugin install ${provider}` }
+              : { name: `package ${provider}`, status: "skip", detail: reg.detail },
+        );
+      }
+      const loadedKnown = state.loadedPackageJson !== null && client.fileExists(state.loadedPackageJson);
+      checks.push(
+        behaviourRevisionCheck(provider, {
+          cli: cliRevision,
+          installed: installedRevisions.get(provider)?.revision ?? null,
+          loaded: loadedKnown ? behaviourRevisionOf(readJson(client, state.loadedPackageJson!)) : null,
+          loadedKnown,
+        }),
+      );
+      continue;
+    }
 
     // Marketplace ownership, from the provider's own listing.
     const executable =

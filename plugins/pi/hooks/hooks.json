@@ -1,0 +1,49 @@
+{
+  "provider": "pi",
+  "description": "The Pi extension events the Jentrix extension subscribes to (it runs in-process — nothing here is a command Pi executes) and the ledger lines it appends for the Jentrix session host. Credentials and session bytes never leave the machine through this extension; the ledger is 0600 under the operator's home.",
+  "subscribes": [
+    "session_start",
+    "session_shutdown",
+    "before_agent_start",
+    "agent_start",
+    "agent_end",
+    "turn_end",
+    "tool_execution_start",
+    "tool_execution_end",
+    "model_select",
+    "session_before_compact",
+    "session_compact",
+    "session_tree"
+  ],
+  "commands": [
+    "jentrix-connect",
+    "jentrix-align",
+    "jentrix-plan",
+    "jentrix-checkpoint",
+    "jentrix-review",
+    "jentrix-status",
+    "jentrix-end"
+  ],
+  "ledger": "~/.config/stacks/pi-sessions/hooks.ndjson",
+  "writes": [
+    "SessionStart",
+    "UserPromptSubmit",
+    "TurnStart",
+    "TurnEnd",
+    "PostToolUse",
+    "Stop",
+    "Usage",
+    "PreCompact",
+    "PostCompact",
+    "Error",
+    "SessionEnd"
+  ],
+  "env": {
+    "PI_SESSION_ID": "Pi's own: this session's id in every bash tool command",
+    "PI_SESSION_FILE": "Pi's own: this session's file (empty under --no-session)"
+  },
+  "snapshot": [
+    "jentrix session snapshot --event PreCompact",
+    "jentrix session snapshot --event PostCompact"
+  ]
+}

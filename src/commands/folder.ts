@@ -125,7 +125,7 @@ export async function runFolderAlign(
           `Folder aligned: ${inspection.repoOwnerName} → workspace ${binding.workspaceSlug} (${binding.workspaceId}) on ${binding.endpoint}`,
         );
         deps.writeOut(
-          "Next: `jentrix session connect --provider claude|codex` from inside a provider session (or /jentrix-connect).",
+          "Next: `jentrix session connect --provider claude|codex|opencode|pi` from inside a provider session (or /jentrix-connect).",
         );
       }
       return EXIT_CODES.OK;

@@ -45,7 +45,15 @@ import { describe, it } from "node:test";
 const CLI_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ENABLED = process.env.CLI_PACK_SMOKE === "1";
 
-describe("packed tarballs — cold install of the three packages", () => {
+const ENROLLED_HOSTS = Object.entries(
+  (JSON.parse(readFileSync(join(CLI_ROOT, "plugins", "registry.json"), "utf8")) as {
+    hosts: Record<string, { status: string }>;
+  }).hosts,
+)
+  .filter(([, h]) => h.status === "enrolled")
+  .map(([name]) => name);
+
+describe("packed tarballs — cold install of every workspace package", () => {
   it(
     ENABLED
       ? "installs from `pnpm -r pack` output and runs `jentrix`"
@@ -54,7 +62,7 @@ describe("packed tarballs — cold install of the three packages", () => {
     async () => {
       const work = mkdtempSync(join(tmpdir(), "stacks-pack-smoke-"));
       try {
-        // 1. Pack ALL THREE workspace packages into the throwaway dir. The
+        // 1. Pack EVERY workspace package into the throwaway dir. The
         //    CLI's `prepack` rebuilds dist/ so its tarball is always fresh.
         runSync("pnpm", ["-r", "pack", "--pack-destination", work], CLI_ROOT);
         const tarballs = readdirSync(work).filter((f) => f.endsWith(".tgz"));
@@ -66,12 +74,14 @@ describe("packed tarballs — cold install of the three packages", () => {
         const cliTgz = tarball("jentrix-cli-");
         const claudeTgz = tarball("jentrix-plugin-claude-");
         const codexTgz = tarball("jentrix-plugin-codex-");
+        // Every ENROLLED host has a tarball (G05: a release set missing one is refused).
+        const pluginTgzs = ENROLLED_HOSTS.map((host) => tarball(`jentrix-plugin-${host}-`));
 
         // 2. No `workspace:` range survives packing: pnpm rewrites the CLI's
         //    plugin pins to exact versions, and npm would refuse the tarball
         //    otherwise.
         const revisions = new Set<string>();
-        for (const tgz of [cliTgz, claudeTgz, codexTgz]) {
+        for (const tgz of [cliTgz, ...pluginTgzs]) {
           const manifest = execFileSync(
             "tar",
             ["-xzOf", tgz, "package/package.json"],
@@ -92,7 +102,7 @@ describe("packed tarballs — cold install of the three packages", () => {
             assert.match(String(meta.resourceDigest ?? ""), /^[0-9a-f]{64}$/, `${tgz}: resourceDigest missing`);
             assert.equal(typeof meta.cliRange, "string", `${tgz}: cliRange missing`);
           } else {
-            assert.deepEqual(meta.hosts, ["claude", "codex"]);
+            assert.deepEqual(meta.hosts, ENROLLED_HOSTS);
           }
         }
         assert.equal(revisions.size, 1, `mixed behaviour revisions across the packed set: ${[...revisions].join(", ")}`);
@@ -113,7 +123,7 @@ describe("packed tarballs — cold install of the three packages", () => {
         {
           const tampered = mkdtempSync(join(tmpdir(), "jentrix-pack-tamper-"));
           // The tarball paths are already absolute (`tarball()` joins `work`).
-          for (const f of [cliTgz, codexTgz]) cpSync(f, join(tampered, basename(f)));
+          for (const f of [cliTgz, ...pluginTgzs.filter((f) => f !== claudeTgz)]) cpSync(f, join(tampered, basename(f)));
           const scratch = mkdtempSync(join(tmpdir(), "jentrix-pack-tamper-src-"));
           execFileSync("tar", ["-xzf", claudeTgz, "-C", scratch]);
           const pkgPath = join(scratch, "package", "package.json");
@@ -155,8 +165,7 @@ describe("packed tarballs — cold install of the three packages", () => {
             join(work, "npm-cache"),
             "--no-audit",
             "--no-fund",
-            claudeTgz,
-            codexTgz,
+            ...pluginTgzs,
             cliTgz,
           ],
           proj,

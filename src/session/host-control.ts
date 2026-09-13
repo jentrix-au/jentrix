@@ -16,7 +16,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { CODEX_HOOK_REMEDY } from "./provider-context";
+import {
+  CODEX_HOOK_REMEDY,
+  PLUGIN_HOST_LABEL,
+  PLUGIN_HOST_REMEDY,
+} from "./provider-context";
+import type { SessionProvider } from "../session-host/session-events";
 
 /**
  * D18 — the host's credential channels, NEITHER of which is the plan file:
@@ -137,19 +142,23 @@ export async function launchHostDetached(
 export function warnAttachedWithoutCapture(
   deps: Pick<SessionCommandDeps, "writeErr">,
   sessionId: string,
-  provider: "claude" | "codex",
+  provider: SessionProvider,
 ): void {
   const reason =
     provider === "claude"
       ? "no trusted transcript path is available for the running session, so nothing is recording locally"
-      : "no trusted Codex hook ledger is available, so nothing is recording locally";
+      : provider === "codex"
+        ? "no trusted Codex hook ledger is available, so nothing is recording locally"
+        : `no Jentrix ${PLUGIN_HOST_LABEL[provider]} plugin ledger is available, so nothing is recording locally`;
   // C2.3/C2.6: one remedy vocabulary. The old Codex wording put the new task
   // BEFORE trusting the hooks, which reads as though trusting them repairs the
   // task you are in — it cannot; hooks load at task start.
   const fix =
     provider === "claude"
       ? "Fix: run /jentrix-connect inside the Claude session (the plugin records the transcript path), or pass --transcript-path from the lifecycle hook."
-      : `Fix: install the Codex plugin (\`jentrix plugin install codex\`), then ${CODEX_HOOK_REMEDY}.`;
+      : provider === "codex"
+        ? `Fix: install the Codex plugin (\`jentrix plugin install codex\`), then ${CODEX_HOOK_REMEDY}.`
+        : `Fix: ${PLUGIN_HOST_REMEDY[provider]}.`;
   deps.writeErr(
     [
       `SESSION BOUND BUT NOT RECORDING: session ${sessionId} is attached server-side, but ${reason}.`,

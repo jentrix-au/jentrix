@@ -1,3 +1,4 @@
+import type { SessionProvider } from "./session-events.js";
 /**
  * Session evidence floor (session-evidence PRD §4, D2/D3) — the v1 ACTIVITY
  * SKELETON: content-free counts, names, paths, and timing accumulated from the
@@ -30,7 +31,7 @@ const MAX_PATH_CHARS = 300;
 
 export interface ActivitySkeleton {
   version: typeof SKELETON_VERSION;
-  provider: "claude" | "codex";
+  provider: SessionProvider;
   /**
    * Turns observed: the GREATER of user-message events and the provider turns
    * the host recorded (JEN-494 D12). `turnsBasis` says which one this is, so a
@@ -128,7 +129,7 @@ export class SessionSkeleton {
   private readonly hourly = new Map<string, number>();
   private coalesced = false;
 
-  constructor(private readonly provider: "claude" | "codex") {}
+  constructor(private readonly provider: SessionProvider) {}
 
   get observedAnything(): boolean {
     return this.firstEventAt !== null;

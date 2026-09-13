@@ -293,6 +293,18 @@ describe("plugin-sync guard (G07 — the guard is itself tested)", () => {
   it("a planned host with a package on disk is refused until enrolled (G01)", () => {
     const dir = fixture();
     try {
+      // M2 enrolled opencode; re-plan it in the fixture registry while its
+      // package (copied with the tree) stays on disk — the state a half-done
+      // enrolment leaves behind.
+      const registry = JSON.parse(readFileSync(path.join(dir, "plugins/registry.json"), "utf8"));
+      registry.hosts.opencode = {
+        status: "planned",
+        package: "@jentrix/plugin-opencode",
+        packageDir: "plugins/opencode",
+        plannedIn: "JEN-537",
+        ownedPaths: ["plugins/opencode/"],
+      };
+      writeJson(dir, "plugins/registry.json", registry);
       mkdirSync(path.join(dir, "plugins/opencode"), { recursive: true });
       writeJson(dir, "plugins/opencode/package.json", {
         name: "@jentrix/plugin-opencode",

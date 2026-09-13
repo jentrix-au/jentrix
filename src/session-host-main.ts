@@ -4,7 +4,7 @@
  * second bin, deliberately not a third package). Two subcommands:
  *
  *   run  (--plan-file <path> | --plan-stdin)   — the capture host
- *   hook (--provider claude|codex | --dir DIR) --event NAME
+ *   hook (--provider claude|codex|opencode|pi | --dir DIR) --event NAME
  *        — the lifecycle-hook forwarder every plugin hook invokes
  *
  * `session-run` / `session-hook` are accepted as internal aliases (§17.2:
@@ -39,10 +39,17 @@ export function sessionHookDir(
   provider: string | null,
   home: string = homedir(),
 ): string | null {
-  return provider === "claude" || provider === "codex"
+  return provider !== null && SESSION_HOOK_PROVIDERS.has(provider)
     ? join(home, ".config", "stacks", `${provider}-sessions`)
     : null;
 }
+
+/**
+ * Kept as a literal set (not imported from session-events) so this ZERO-
+ * NETWORK entry stays free of the host module graph; test/session-hook-log
+ * pins it to the shared vocabulary.
+ */
+const SESSION_HOOK_PROVIDERS = new Set(["claude", "codex", "opencode", "pi"]);
 
 async function readStdinCapped(cap = 2 * 1024 * 1024): Promise<string> {
   const chunks: Buffer[] = [];
@@ -98,7 +105,10 @@ export async function sessionHostMain(args: string[]): Promise<number> {
         "SESSION_HOST_VERSION_MISMATCH: session plan protocol mismatch — reinstall @jentrix/cli so the CLI and its bundled host match",
       );
     }
-    if (plan.provider !== "claude" && plan.provider !== "codex") {
+    if (
+      typeof plan.provider !== "string" ||
+      !SESSION_HOOK_PROVIDERS.has(plan.provider)
+    ) {
       throw new Error("SESSION_PLAN_INVALID: unknown session provider");
     }
     return runSessionHost(
@@ -128,7 +138,7 @@ export async function sessionHostMain(args: string[]): Promise<number> {
       const event = valueAfter(args, "--event") ?? "unknown";
       if (!dir) {
         throw new Error(
-          "SESSION_HOOK_INVALID: hook needs --provider claude|codex or --dir",
+          "SESSION_HOOK_INVALID: hook needs --provider claude|codex|opencode|pi or --dir",
         );
       }
       appendHookEvent(dir, event, await readStdinCapped());
@@ -149,7 +159,7 @@ export async function sessionHostMain(args: string[]): Promise<number> {
   }
 
   process.stderr.write(
-    "usage: jentrix-session-host run (--plan-file PATH | --plan-stdin) | hook (--provider claude|codex | --dir DIR) --event NAME | version\n",
+    "usage: jentrix-session-host run (--plan-file PATH | --plan-stdin) | hook (--provider claude|codex|opencode|pi | --dir DIR) --event NAME | version\n",
   );
   return 2;
 }

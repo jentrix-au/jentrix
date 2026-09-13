@@ -1,0 +1,102 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-13-jen-537-opencode-pi-enrolment",
+  "issue": "JEN-537",
+  "title": "M2: OpenCode and Pi enrolled as official hosts \u2014 provider vocabulary (`opencode`, `pi`) through the shared engine, in-process plugin packages that append the provider ledger, ledger mappers with S0b-proven token semantics (OpenCode adds cache and reasoning back, Pi adds cache back; inherited fork history yields no receipt), commands via OpenCode's config hook and Pi's registerCommand, install/remove/doctor/setup for both",
+  "behaviors": [
+    "P01",
+    "P02",
+    "P03",
+    "P04",
+    "P06",
+    "P07",
+    "P10",
+    "P11",
+    "P13",
+    "P14",
+    "P15",
+    "P16",
+    "R05"
+  ],
+  "base": {
+    "revision": "59e47bf"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "src/session-host/session-events.ts",
+    "src/session-host/session-opencode-hooks.ts",
+    "src/session-host/session-pi-hooks.ts",
+    "src/session-host/session-host.ts",
+    "src/session-host/session-bridge.ts",
+    "src/session-host/session-skeleton.ts",
+    "src/session-host-main.ts",
+    "src/session/",
+    "src/commands/",
+    "src/main.ts",
+    "plugins/opencode/",
+    "plugins/pi/",
+    "plugins/workflows/",
+    "plugins/registry.json",
+    "plugins/changes/2026-09-13-jen-537-opencode-pi-enrolment.json",
+    "scripts/check-version.mjs",
+    "scripts/build.mjs",
+    "test/",
+    "docs/",
+    ".github/workflows/",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    "plugins/claude/.claude-plugin/plugin.json",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/codex/plugins/jentrix/.codex-plugin/plugin.json",
+    "scripts/check-plugin-sync.mjs",
+    "scripts/generate-workflows.mjs"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/session-plugin-hooks.test.ts",
+        "test/plugin-sync-conformance.test.ts",
+        "test/plugin-parity.test.ts",
+        "test/command-regressions.test.ts",
+        "test/session-watch-host.smoke.test.ts"
+      ],
+      "rationale": "The provider vocabulary widened in shared code (session-events, provider-context, connect/align/status/end, the host loop) \u2014 the Claude branches are untouched in logic and the whole suite passes; the generated Claude command files are byte-identical (gen:workflows --check)."
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/session-plugin-hooks.test.ts",
+        "test/plugin-sync-conformance.test.ts",
+        "test/plugin-parity.test.ts",
+        "test/codex-context.test.ts",
+        "test/session-codex-hooks.smoke.test.ts"
+      ],
+      "rationale": "Same shared change; the Codex hook mapper, rollout mapper and context reader are untouched and their suites pass; the generated Codex skills are byte-identical."
+    },
+    "opencode": {
+      "disposition": "adapter-fix-applied",
+      "evidence": [
+        "test/session-plugin-hooks.test.ts",
+        "test/plugin-runtime-opencode.test.ts",
+        "test/plugin-sync-conformance.test.ts",
+        "test/plugin-parity.test.ts"
+      ],
+      "rationale": "New host: ledger mapper (session-opencode-hooks.ts) and the in-process plugin (plugins/opencode/src/index.js) exercised against the S0b native fixtures (OpenCode 1.18.9)."
+    },
+    "pi": {
+      "disposition": "adapter-fix-applied",
+      "evidence": [
+        "test/session-plugin-hooks.test.ts",
+        "test/plugin-runtime-pi.test.ts",
+        "test/plugin-sync-conformance.test.ts",
+        "test/plugin-parity.test.ts"
+      ],
+      "rationale": "New host: ledger mapper (session-pi-hooks.ts) and the in-process extension (plugins/pi/src/index.js) exercised against the S0b native fixtures (Pi 0.85.1)."
+    }
+  }
+}

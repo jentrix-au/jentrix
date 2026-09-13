@@ -1552,3 +1552,77 @@ test("JEN-294: a second restart keeps the earlier restart's ranges — usage.jso
   assert.ok(usage.missingRanges.includes(noteOf(first.updatedAt)));
   assert.ok(usage.missingRanges.includes(noteOf(secondSnapshot.updatedAt)));
 });
+
+// JEN-537 (M2 native trial, every OpenCode and Pi run): the in-process plugin
+// writes the receipt of the assistant step that RAN `jentrix session connect`
+// only after that command returns — after the host was spawned, but before
+// the host had read the ledger. A host that baselines at the ledger's end
+// when IT starts skipped that receipt every time (the DB held receipts 2–5
+// of 5). The CLI now hands the host the baseline it observed BEFORE the
+// command returned; pre-connect history still stays out.
+test("plugin watch host tails from the CLI's ledger baseline — the connect step's own receipt is counted (JEN-537)", async () => {
+  const spoolRoot = mkdtempSync(join(tmpdir(), "stacks-oc-baseline-spool-"));
+  const workDir = mkdtempSync(join(tmpdir(), "stacks-oc-baseline-repo-"));
+  const hookDir = mkdtempSync(join(tmpdir(), "stacks-oc-baseline-hooks-"));
+  const usage = (sessionId: string, part: string, reasoning: number) =>
+    JSON.stringify({
+      session_id: sessionId,
+      message_id: `msg_${part}`,
+      part_id: `prt_${part}`,
+      turn_id: "msg_turn",
+      model: { providerID: "jentrix-stub", modelID: "stub-model" },
+      tokens: { total: 1000, input: 600, output: 90, reasoning, cache: { read: 300, write: 0 } },
+      cost: 0,
+      finish: "tool-calls",
+      at_wall: 1789294889916,
+    });
+  // Pre-connect history (another session, and this one before connect): OUT.
+  appendHookEvent(hookDir, "Usage", usage("ses_other", "0", 999));
+  appendHookEvent(hookDir, "Usage", usage("ses_own", "pre", 500));
+  // What `jentrix session connect` observed before it spawned the host.
+  const hookOffset = readFileSync(join(hookDir, "hooks.ndjson"), "utf8").length;
+  // …and the receipt of the step that ran it, landing before the host boots.
+  appendHookEvent(hookDir, "Usage", usage("ses_own", "1", 46));
+  const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const callTool = async (name: string, args: Record<string, unknown>) => {
+    toolCalls.push({ name, args });
+    return name === "get_agent_session"
+      ? { updatedAt: "2026-09-13T10:00:00.000Z" }
+      : name === "complete_agent_session"
+        ? { status: "COMPLETED", captureComplete: true, summaryArtifactId: "art_summary" }
+        : {};
+  };
+  const fetchImpl = (async () =>
+    ({ ok: true, status: 200, json: async () => ({ ok: true }), text: async () => "{}" }) as unknown as Response) as typeof fetch;
+  const hostPromise = runClaudeSessionHost(
+    {
+      protocolVersion: 1,
+      sessionId: "ses_oc_baseline",
+      provider: "opencode",
+      providerSessionId: "ses_own",
+      jentrixBaseUrl: "https://stacks.example",
+      mcpUrl: "https://stacks.example/api/mcp",
+      bearer: "tmo_watch_bearer",
+      repoRoot: workDir,
+      installationId: "install-watch",
+      mode: "watch",
+      hookDir,
+      hookOffset,
+      captureTrace: false,
+      spoolRoot,
+    },
+    { fetchImpl, callTool, log: () => undefined },
+  );
+  await until(
+    () => existsSync(join(spoolRoot, "ses_oc_baseline", "host.json")),
+    5_000,
+    "OpenCode host marker",
+  );
+  appendHookEvent(hookDir, "Usage", usage("ses_own", "2", 47));
+  appendHookEvent(hookDir, "SessionEnd", JSON.stringify({ session_id: "ses_own", reason: "dispose" }));
+  assert.equal(await hostPromise, 0);
+  const close = toolCalls.find((call) => call.name === "complete_agent_session");
+  assert.ok(close, "the host closed the session");
+  const sent = close!.args.usage as { reasoningOutputTokens?: number };
+  assert.equal(sent.reasoningOutputTokens, 46 + 47, "the connect step's receipt (46) counted; pre-connect history (500, 999) did not");
+});

@@ -19,6 +19,7 @@ import {
   openSync,
   readFileSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -59,7 +60,9 @@ import {
   registerPluginCommand,
   runPluginInstall,
   type PluginCommandDeps,
+  type PluginProvider,
 } from "./commands/plugin";
+import { isHostPluginDir } from "./commands/plugin-hosts";
 import {
   invokeProcess,
   platformExecutableNames,
@@ -481,7 +484,7 @@ const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 /** The resolved directory of `@jentrix/plugin-<provider>`, or null. */
 function pluginPackageDir(
   from: string,
-  provider: "claude" | "codex",
+  provider: PluginProvider,
 ): string | null {
   try {
     return dirname(
@@ -496,9 +499,20 @@ function pluginResolvers(
   packageRoot: string,
 ): Pick<
   PluginCommandDeps,
-  "resolvePluginDir" | "resolveCodexPluginDir" | "cliPackageRoot"
+  | "resolvePluginDir"
+  | "resolveCodexPluginDir"
+  | "resolveOpenCodePluginDir"
+  | "resolvePiPluginDir"
+  | "cliPackageRoot"
 > {
   const from = join(packageRoot, "package.json");
+  const readText = (path: string) => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return null;
+    }
+  };
   return {
     resolvePluginDir: () => {
       const dir = pluginPackageDir(from, "claude");
@@ -507,6 +521,15 @@ function pluginResolvers(
     resolveCodexPluginDir: () => {
       const dir = pluginPackageDir(from, "codex");
       return dir !== null && isCodexPluginMarketplaceDir(dir) ? dir : null;
+    },
+    // M2 (JEN-537): the plugin hosts' packages, validated by their manifest.
+    resolveOpenCodePluginDir: () => {
+      const dir = pluginPackageDir(from, "opencode");
+      return dir !== null && isHostPluginDir("opencode", dir, readText) ? dir : null;
+    },
+    resolvePiPluginDir: () => {
+      const dir = pluginPackageDir(from, "pi");
+      return dir !== null && isHostPluginDir("pi", dir, readText) ? dir : null;
     },
     cliPackageRoot: () => packageRoot,
   };
@@ -518,6 +541,14 @@ const pluginDeps: PluginCommandDeps = {
   resolveClaude: () => resolveClaudeExecutable(process.env),
   resolveCodex: () =>
     resolveExecutableOnPath(platformExecutableNames("codex"), process.env),
+  resolveOpenCode: () =>
+    resolveExecutableOnPath(platformExecutableNames("opencode"), process.env),
+  resolvePi: () =>
+    resolveExecutableOnPath(platformExecutableNames("pi"), process.env),
+  env: () => process.env,
+  homeDir: () => homedir(),
+  ensureDir: (path) => mkdirSync(path, { recursive: true }),
+  deleteFile: (path) => unlinkSync(path),
   resolveSessionHostBin: () =>
     resolveExecutableOnPath(
       platformExecutableNames("jentrix-session-host"),
@@ -560,8 +591,13 @@ sessionDeps.client = {
   cliPackageRoot: pluginDeps.cliPackageRoot,
   resolvePluginDir: pluginDeps.resolvePluginDir,
   resolveCodexPluginDir: pluginDeps.resolveCodexPluginDir,
+  resolveOpenCodePluginDir: pluginDeps.resolveOpenCodePluginDir,
+  resolvePiPluginDir: pluginDeps.resolvePiPluginDir,
   resolveClaude: pluginDeps.resolveClaude,
   resolveCodex: pluginDeps.resolveCodex,
+  resolveOpenCode: pluginDeps.resolveOpenCode,
+  resolvePi: pluginDeps.resolvePi,
+  env: () => process.env,
   invoke: (file, args) => invokeProcess(file, args),
   fileExists: pluginDeps.fileExists,
   readTextFile: pluginDeps.readTextFile,

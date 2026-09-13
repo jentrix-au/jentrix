@@ -45,6 +45,19 @@ export const PLUGIN_VERSION_SOURCES = [
     packageJson: "../plugins/codex/package.json",
     manifest: "../plugins/codex/plugins/jentrix/.codex-plugin/plugin.json",
   },
+  // M2 (JEN-537): neither OpenCode nor Pi has a host manifest format of its
+  // own, so each package carries a Jentrix manifest.json the loader and the
+  // doctor read; its version must equal the package's.
+  {
+    name: "@jentrix/plugin-opencode",
+    packageJson: "../plugins/opencode/package.json",
+    manifest: "../plugins/opencode/manifest.json",
+  },
+  {
+    name: "@jentrix/plugin-pi",
+    packageJson: "../plugins/pi/package.json",
+    manifest: "../plugins/pi/manifest.json",
+  },
 ];
 
 const problems = [];

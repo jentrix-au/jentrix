@@ -6,7 +6,7 @@ anchors work.
 
 Options:
   --provider <provider>     provider of the running session (choices: "claude",
-                            "codex")
+                            "codex", "opencode", "pi")
   --provider-session <id>   current provider session/thread id
   --transcript-path <path>  trusted transcript path from the lifecycle hook
   --import-history          import prior VISIBLE provider history via a

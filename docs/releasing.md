@@ -1,21 +1,23 @@
 # Releasing the client packages
 
-This repository is one pnpm root holding THREE packages (open-client PRD
-§5.2): `@jentrix/cli` (the root), `@jentrix/plugin-claude` (`plugins/claude`)
-and `@jentrix/plugin-codex` (`plugins/codex`). The CLI depends on both
-plugins with `workspace:*`, which `pnpm pack` rewrites to the exact version.
+This repository is one pnpm root holding FIVE packages (open-client PRD
+§5.2; M2 JEN-537 added the last two): `@jentrix/cli` (the root),
+`@jentrix/plugin-claude` (`plugins/claude`), `@jentrix/plugin-codex`
+(`plugins/codex`), `@jentrix/plugin-opencode` (`plugins/opencode`) and
+`@jentrix/plugin-pi` (`plugins/pi`). The CLI depends on every plugin with
+`workspace:*`, which `pnpm pack` rewrites to the exact version.
 They publish to npm via [`.github/workflows/release.yml`](../.github/workflows/release.yml),
 triggered by pushing a **`cli-v*`** tag — PACK-ONCE and STRAIGHT TO `latest`:
 
 1. `pnpm -r pack` runs exactly once; any `workspace:` range that survives is a
    red build.
-2. The three tarballs are clean-installed TOGETHER into an empty project and
+2. The five tarballs are clean-installed TOGETHER into an empty project and
    exercised (`--version`, `--help`, `plugin install <provider> --dry-run`,
    no `plugins/` inside the CLI package).
 3. The very same files are `npm publish`ed under the **`latest`** dist-tag —
-   plugins first, the CLI last (its package.json pins their versions).
+   plugins first (all four), the CLI last (its package.json pins their versions).
    Nothing repacks between validation and upload.
-4. The registry is asked whether all three versions exist (a ten-minute poll —
+4. The registry is asked whether all five versions exist (a ten-minute poll —
    npm publishes asynchronously), and a GitHub Release announces it.
 
 A tagged release is live for every user the moment step 3 lands. There is no
@@ -71,8 +73,11 @@ deleted from the repository and revoked on npmjs.com.
    renaming the workflow file does.
 2. **npm trusted publisher (no token).** Releases authenticate with OIDC, so
    there is no npm credential in this repository or its Actions secrets. On
-   npmjs.com, for **each** of `@jentrix/cli`, `@jentrix/plugin-claude` and
-   `@jentrix/plugin-codex`: package → Settings → Trusted publisher → *Select
+   npmjs.com, for **each** of `@jentrix/cli`, `@jentrix/plugin-claude`,
+   `@jentrix/plugin-codex`, `@jentrix/plugin-opencode` and `@jentrix/plugin-pi`
+   (the last two are NEW packages: register their trusted publishers BEFORE
+   the first tag that ships them, or the train stops at their publish step):
+   package → Settings → Trusted publisher → *Select
    your publisher* → GitHub Actions, with **organization or user `jentrix-au`,
    repository `jentrix`, workflow `release.yml`, environment `release`**, and
    **Allowed actions: npm publish** (a required field, easy to miss — an
@@ -116,7 +121,7 @@ deleted from the repository and revoked on npmjs.com.
 3. **`NPM_PROMOTE_TOKEN` is retired.** It backed the promote job, which no
    longer exists (see "Why there is no `next` candidate any more"). Delete the
    environment secret and revoke the token on npmjs.com; nothing reads it.
-4. **`repository.url` must match.** All three `package.json` files name
+4. **`repository.url` must match.** All five `package.json` files name
    `git+https://github.com/jentrix-au/jentrix.git` (the plugins with
    `repository.directory`). Trusted publishing with provenance FAILS
    publication when the metadata names a different repository than the one
@@ -150,7 +155,8 @@ the tag (`git push origin :refs/tags/cli-v0.7.1`), merge, then tag the new head.
 
    A plugin that CHANGED bumps its own version in BOTH its places — the
    provider manifest (`plugins/claude/.claude-plugin/plugin.json`,
-   `plugins/codex/plugins/jentrix/.codex-plugin/plugin.json`: what Claude Code
+   `plugins/codex/plugins/jentrix/.codex-plugin/plugin.json`,
+   `plugins/opencode/manifest.json`, `plugins/pi/manifest.json`: what Claude Code
    and Codex cache BY) and its `package.json` (what npm publishes); the guard
    fails when they disagree. An unchanged plugin keeps its version: on a tag
    its publish is a clean no-op (npm's "cannot publish over" is success for a
@@ -163,7 +169,7 @@ the tag (`git push origin :refs/tags/cli-v0.7.1`), merge, then tag the new head.
    (fetch it from the manifest's `bundleUrl`). Say which digest the release
    adopts in the pull request.
 3. Run the workflow's own gates locally: `pnpm typecheck && CLI_PACK_SMOKE=1
-   pnpm test && pnpm validate:examples` (the smoke packs all three,
+   pnpm test && pnpm validate:examples` (the smoke packs all five,
    cold-installs them together and runs the plugin dry runs).
 4. Merge through a pull request (the `main` ruleset requires one, with a code
    owner's approval and a green `ci`), then tag and push the tag:
@@ -175,9 +181,9 @@ the tag (`git push origin :refs/tags/cli-v0.7.1`), merge, then tag the new head.
    verifies the tag pins the CLI and the plugins agree with themselves,
    typechecks and tests, packs once, clean-installs the exact tarballs,
    installs an npm that speaks OIDC (>= 11.5.1; Node 22 bundles 10.9.x),
-   publishes the three packages to `latest` over trusted publishing (plugins
+   publishes the five packages to `latest` over trusted publishing (plugins
    first, CLI last — no credential anywhere), **asks the registry whether all
-   three versions actually exist**, and creates the GitHub Release. That
+   five versions actually exist**, and creates the GitHub Release. That
    registry step is not belt-and-braces: the publish steps exit 0 on a dry run
    by design, so their exit code cannot distinguish "released" from "released
    nothing". `DRY` is derived in the shell from an `IS_TAG` env var

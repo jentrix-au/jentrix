@@ -2,6 +2,7 @@
 import { EXIT_CODES } from "../errors";
 import { type GitRunner, inspectRepository, defaultGitRunner } from "../repo";
 import { type SessionCommandDeps } from "./deps";
+import { asSessionProvider } from "../session-host/session-events";
 import { stacksBaseUrlOf, withCaller, reportError } from "./runtime";
 import { createSessionRedactor } from "../session-host/session-redact";
 import { readCurrentProviderHookContext } from "./provider-context";
@@ -483,7 +484,7 @@ export async function runSessionEnd(
           sessionId,
           row.usage,
           hostRan,
-          row.provider === "codex" ? "codex" : "claude",
+          asSessionProvider(row.provider) ?? "claude",
         );
         // Under --json stdout stays ONE parseable document (the payload
         // already carries `usage`); the warning is stderr on both paths.

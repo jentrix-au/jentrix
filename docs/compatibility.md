@@ -8,6 +8,8 @@ Four things carry a version, and by rule they never share a number:
 | `@jentrix/cli` | this repository | `package.json` + `CLI_VERSION` in `src/client.ts` |
 | `@jentrix/plugin-claude` | this repository | `plugins/claude/package.json` + `.claude-plugin/plugin.json` |
 | `@jentrix/plugin-codex` | this repository | `plugins/codex/package.json` + `plugins/jentrix/.codex-plugin/plugin.json` |
+| `@jentrix/plugin-opencode` | this repository | `plugins/opencode/package.json` + `manifest.json` (no host manifest format exists) |
+| `@jentrix/plugin-pi` | this repository | `plugins/pi/package.json` + `manifest.json` (no host manifest format exists) |
 
 The server owns the API release and the support state of each line; each
 client owns the range and the exact digest it tested against. Neither side

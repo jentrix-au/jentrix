@@ -10,6 +10,10 @@ import {
 import { type SessionCommandDeps } from "./deps";
 import { join } from "node:path";
 import { UsageError } from "../tool-client";
+import {
+  SESSION_PROVIDERS,
+  type SessionProvider,
+} from "../session-host/session-events";
 
 /**
  * A SessionStart with no SessionEnd is not evidence of a LIVE session — the
@@ -182,6 +186,23 @@ const CODEX_HOOK_ONLY = [
 export const CODEX_HOOK_REMEDY =
   "type `/hooks` at Codex's own prompt (an in-session Codex CLI command, not a shell command), review and trust the Jentrix hooks, then start a NEW task — the trust persists, and hooks load at task start, so it covers tasks started after it";
 
+/** How the two plugin hosts are named in prose. */
+export const PLUGIN_HOST_LABEL: Record<"opencode" | "pi", string> = {
+  opencode: "OpenCode",
+  pi: "Pi",
+};
+
+/**
+ * M2 (JEN-537): the one remedy for a plugin host that recorded nothing —
+ * plugins load at startup on both hosts, and OpenCode's `--pure` disables
+ * every external plugin for that run.
+ */
+export const PLUGIN_HOST_REMEDY: Record<"opencode" | "pi", string> = {
+  opencode:
+    "install the plugin (`jentrix plugin install opencode`), then restart OpenCode — plugins load at startup, and a run started with `--pure` loads none",
+  pi: "install the package (`jentrix plugin install pi`), then restart Pi — extensions load at startup, and a run started with `--no-extensions` loads none",
+};
+
 /**
  * The three-value telemetry source (C2.1). `hookRecord` is whether the LEDGER
  * holds a record for this session; `boundPath` is the exact rollout (Codex) or
@@ -192,7 +213,7 @@ export const CODEX_HOOK_REMEDY =
  * directly unit-testable without a filesystem.
  */
 export function telemetrySourceFact(
-  provider: "claude" | "codex",
+  provider: SessionProvider,
   input: { hookRecord: boolean; boundPath: string | null },
 ): TelemetrySourceFact {
   const { hookRecord, boundPath } = input;
@@ -201,6 +222,26 @@ export function telemetrySourceFact(
     : boundPath
       ? "rollout-fallback"
       : "unavailable";
+  if (provider === "opencode" || provider === "pi") {
+    // M2 (JEN-537): the in-process plugin IS the only source — it appends
+    // lifecycle, prompts, tool calls, assistant text AND token receipts to the
+    // ledger, and there is no transcript to fall back on (OpenCode stores
+    // sessions in SQLite; Pi's session file carries nothing the plugin does
+    // not already see). Either the plugin recorded this session or nothing did.
+    return hookRecord
+      ? {
+          source: "hooks+rollout",
+          detail: `hooks+rollout — the Jentrix ${PLUGIN_HOST_LABEL[provider]} plugin recorded this session in its ledger (lifecycle, prompts, tool calls, assistant messages, token receipts)`,
+          missing: [],
+          remedy: null,
+        }
+      : {
+          source: "unavailable",
+          detail: `unavailable — no Jentrix ${PLUGIN_HOST_LABEL[provider]} plugin ledger line names this session, so nothing local can observe it`,
+          missing: [...CODEX_HOOK_ONLY, "token receipts"],
+          remedy: PLUGIN_HOST_REMEDY[provider],
+        };
+  }
   if (provider === "codex") {
     // Codex splits cleanly: the hook ledger is the ONLY source of the five
     // capabilities above, the rollout the ONLY source of token receipts.
@@ -253,7 +294,7 @@ export function telemetrySourceFact(
  */
 export function hookLedgerNamesSession(
   deps: Pick<SessionCommandDeps, "env">,
-  provider: "claude" | "codex",
+  provider: SessionProvider,
   sessionId: string,
   readFile: (path: string) => string = (path) => readFileSync(path, "utf8"),
 ): boolean {
@@ -282,13 +323,15 @@ export function hookLedgerNamesSession(
  */
 export function telemetrySourceForSessionRow(
   deps: Pick<SessionCommandDeps, "env">,
-  provider: "claude" | "codex",
+  provider: SessionProvider,
   providerSessionId: string | null,
 ): TelemetrySourceFact {
   const boundPath = providerSessionId
     ? provider === "codex"
       ? readCodexRolloutPath(deps, providerSessionId)
-      : readClaudeHookTranscript(deps, providerSessionId)
+      : provider === "claude"
+        ? readClaudeHookTranscript(deps, providerSessionId)
+        : null // plugin hosts: the ledger is the source; no file is bound
     : null;
   return telemetrySourceFor(deps, provider, providerSessionId, boundPath);
 }
@@ -307,7 +350,7 @@ export function telemetrySourceLines(fact: TelemetrySourceFact): string[] {
 /** The telemetry source for one resolved binding — the one call every surface makes. */
 export function telemetrySourceFor(
   deps: Pick<SessionCommandDeps, "env">,
-  provider: "claude" | "codex",
+  provider: SessionProvider,
   sessionId: string | null,
   boundPath: string | null,
   readFile?: (path: string) => string,
@@ -331,16 +374,39 @@ const CODEX_THREAD_ENV = "CODEX_THREAD_ID";
 
 const CODEX_SESSION_ENV = "CODEX_SESSION_ID";
 
+/**
+ * M2 (JEN-537): OpenCode exports no session env of its own — the Jentrix
+ * plugin's `shell.env` hook injects this into every bash tool command (S0b
+ * proved the value reaches the shell). Pi's bash tool exports its own.
+ */
+const OPENCODE_SESSION_ENV = "OPENCODE_SESSION_ID";
+const PI_SESSION_ENV = "PI_SESSION_ID";
+const PI_SESSION_FILE_ENV = "PI_SESSION_FILE";
+
 export interface ProviderHookContext extends ClaudeHookContext {
-  provider: "claude" | "codex";
+  provider: SessionProvider;
 }
 
 export function hooksDir(
   deps: Pick<SessionCommandDeps, "env">,
-  provider: "claude" | "codex",
+  provider: SessionProvider,
 ): string | null {
   const home = deps.env.HOME ?? deps.env.USERPROFILE;
   return home ? join(home, ".config", "stacks", `${provider}-sessions`) : null;
+}
+
+/**
+ * The ledger's current length in UTF-16 units — the unit `readHookLines`
+ * counts in — taken by the CLI at launch so the host's tail starts BEFORE the
+ * receipt of the step that ran `jentrix session connect` lands (JEN-537).
+ * A missing ledger is offset 0: the first post-attach hook creates it.
+ */
+export function hookLedgerOffset(hookDir: string): number {
+  try {
+    return readFileSync(join(hookDir, "hooks.ndjson"), "utf8").length;
+  } catch {
+    return 0;
+  }
 }
 
 export function codexHooksDir(
@@ -575,39 +641,128 @@ export function readCodexHookContext(
     : null;
 }
 
+/**
+ * M2 (JEN-537): trusted identity for a PLUGIN host (OpenCode, Pi). The
+ * process-owned session env wins (OpenCode: injected by the plugin's
+ * `shell.env` hook; Pi: the bash tool's own `PI_SESSION_ID`). The plugin
+ * ledger is the fallback under the Codex rule — exactly ONE live session
+ * matching this checkout, never a same-checkout tie broken by recency.
+ * `transcriptPath` is Pi's session file when the env names one (evidence of
+ * the binding; the host reads the ledger, not the file); OpenCode has none.
+ */
+export function readPluginHostContext(
+  deps: Pick<SessionCommandDeps, "env" | "cwd">,
+  provider: "opencode" | "pi",
+  readFile: (path: string) => string = (path) => readFileSync(path, "utf8"),
+  now: () => number = Date.now,
+): ClaudeHookContext | null {
+  const envName = provider === "pi" ? PI_SESSION_ENV : OPENCODE_SESSION_ENV;
+  const own = deps.env[envName]?.trim() || null;
+  const sessionFile =
+    provider === "pi" ? deps.env[PI_SESSION_FILE_ENV]?.trim() || null : null;
+  const dir = hooksDir(deps, provider);
+  let body = "";
+  if (dir) {
+    try {
+      body = readFile(join(dir, "hooks.ndjson"));
+    } catch {
+      // An environment-named session remains trusted without a ledger record.
+    }
+  }
+  const ledger = parseHookLedger(body);
+  const { starts, endedAt } = ledger;
+  if (own) {
+    return {
+      sessionId: own,
+      transcriptPath: sessionFile ?? transcriptForSessionIn(ledger, own),
+      basis: `${envName}=${own} — this ${PLUGIN_HOST_LABEL[provider]} session's own id${
+        sessionFile ? " (session file from its environment)" : ""
+      }`,
+      newerElsewhere: null,
+    };
+  }
+  if (!dir || !body) return null;
+  const cwd = deps.cwd();
+  const liveIds = new Map<string, HookStart>();
+  for (const start of starts) {
+    const ended = endedAt.get(start.sessionId);
+    if (ended !== undefined && ended >= start.startedMs) continue;
+    if (now() - start.startedMs > STALE_HOOK_MS) continue;
+    if (cwd !== start.cwd && !cwd.startsWith(`${start.cwd}/`)) continue;
+    liveIds.set(start.sessionId, start);
+  }
+  const matches = [...liveIds.values()];
+  if (matches.length > 1) {
+    throw new UsageError(
+      `PROVIDER_SESSION_AMBIGUOUS: ${matches.length} live ${PLUGIN_HOST_LABEL[provider]} sessions match ${cwd} — use the command inside the target session (its bash tool carries ${envName}) or pass --provider-session explicitly`,
+    );
+  }
+  const match = matches[0];
+  return match
+    ? {
+        sessionId: match.sessionId,
+        transcriptPath: transcriptForSessionIn(ledger, match.sessionId),
+        basis: `unambiguous SessionStart${match.at ? ` at ${match.at}` : ""} in ${match.cwd}`,
+        newerElsewhere: null,
+      }
+    : null;
+}
+
+/** The named host's trusted context — the one dispatcher connect/align use. */
+export function readProviderHookContext(
+  deps: Pick<SessionCommandDeps, "env" | "cwd">,
+  provider: SessionProvider,
+): ClaudeHookContext | null {
+  switch (provider) {
+    case "claude":
+      return readClaudeHookContext(deps);
+    case "codex":
+      return readCodexHookContext(deps);
+    case "opencode":
+    case "pi":
+      return readPluginHostContext(deps, provider);
+  }
+}
+
+/** Which providers' own environment identifies this process. */
+function providersInEnv(env: Record<string, string | undefined>): SessionProvider[] {
+  const named: SessionProvider[] = [];
+  if (env[CODEX_THREAD_ENV]?.trim() || env[CODEX_SESSION_ENV]?.trim())
+    named.push("codex");
+  if (env[CLAUDE_SESSION_ENV]?.trim()) named.push("claude");
+  if (env[OPENCODE_SESSION_ENV]?.trim()) named.push("opencode");
+  if (env[PI_SESSION_ENV]?.trim()) named.push("pi");
+  return named;
+}
+
 /** Current trusted provider context for implicit session correlation. */
 export function readCurrentProviderHookContext(
   deps: Pick<SessionCommandDeps, "env" | "cwd">,
 ): ProviderHookContext | null {
-  const hasCodex = Boolean(
-    deps.env[CODEX_THREAD_ENV]?.trim() || deps.env[CODEX_SESSION_ENV]?.trim(),
-  );
-  const hasClaude = Boolean(deps.env[CLAUDE_SESSION_ENV]?.trim());
-  if (hasCodex && hasClaude) {
+  const named = providersInEnv(deps.env);
+  if (named.length > 1) {
     throw new UsageError(
-      "PROVIDER_SESSION_AMBIGUOUS: both Codex and Claude identify this process — pass the target session explicitly",
+      `PROVIDER_SESSION_AMBIGUOUS: ${named.join(" and ")} identify this process — pass the target session explicitly`,
     );
   }
-  if (hasCodex) {
-    const context = readCodexHookContext(deps);
-    return context ? { ...context, provider: "codex" } : null;
+  if (named.length === 1) {
+    const provider = named[0]!;
+    const context = readProviderHookContext(deps, provider);
+    return context ? { ...context, provider } : null;
   }
-  if (hasClaude) {
-    const context = readClaudeHookContext(deps);
-    return context ? { ...context, provider: "claude" } : null;
+  // No environment identity: every provider's ledger may name a live session
+  // in this checkout, and more than one is a tie nothing here can break.
+  const live: ProviderHookContext[] = [];
+  for (const provider of SESSION_PROVIDERS) {
+    const context = readProviderHookContext(deps, provider);
+    if (context) live.push({ ...context, provider });
   }
-  const codex = readCodexHookContext(deps);
-  const claude = readClaudeHookContext(deps);
-  if (codex && claude) {
+  if (live.length > 1) {
     throw new UsageError(
-      "PROVIDER_SESSION_AMBIGUOUS: live Codex and Claude sessions both match this checkout — run inside the target provider task",
+      `PROVIDER_SESSION_AMBIGUOUS: live ${live.map((c) => c.provider).join(" and ")} sessions both match this checkout — run inside the target provider task`,
     );
   }
-  return codex
-    ? { ...codex, provider: "codex" }
-    : claude
-      ? { ...claude, provider: "claude" }
-      : null;
+  return live[0] ?? null;
 }
 
 /**

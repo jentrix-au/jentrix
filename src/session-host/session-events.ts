@@ -7,6 +7,28 @@
 
 export const SESSION_EVENT_VERSION = 1 as const;
 
+/**
+ * M2 (JEN-537) — the connected-session providers, in ONE place. `claude` and
+ * `codex` bind through lifecycle hooks and a transcript/rollout; `opencode`
+ * and `pi` through an in-process plugin that appends the same hook ledger
+ * the host already reads. The server's `SESSION_PROVIDERS` carries the same
+ * four values; a fifth host is registered in plugins/registry.json first.
+ */
+export const SESSION_PROVIDERS = ["claude", "codex", "opencode", "pi"] as const;
+export type SessionProvider = (typeof SESSION_PROVIDERS)[number];
+
+export function isSessionProvider(value: unknown): value is SessionProvider {
+  return (
+    typeof value === "string" &&
+    (SESSION_PROVIDERS as readonly string[]).includes(value)
+  );
+}
+
+/** A server/session row's provider as the vocabulary knows it — never a guessed default. */
+export function asSessionProvider(value: unknown): SessionProvider | null {
+  return isSessionProvider(value) ? value : null;
+}
+
 export type SessionEventKind =
   | "session"
   | "user_message"
@@ -53,7 +75,7 @@ export interface SessionEvent {
   sequence: number;
   /** UTC ISO timestamp for display/audit (durations use the monotonic clock). */
   at: string;
-  provider: "claude" | "codex";
+  provider: SessionProvider;
   providerEventId?: string;
   kind: SessionEventKind;
   /** R05 — common correlation ids, when the host exposed them. */
@@ -104,7 +126,7 @@ export function parseSessionEvent(line: string): SessionEvent | null {
       parsed?.version !== SESSION_EVENT_VERSION ||
       typeof parsed.sequence !== "number" ||
       typeof parsed.at !== "string" ||
-      (parsed.provider !== "claude" && parsed.provider !== "codex") ||
+      !isSessionProvider(parsed.provider) ||
       !SESSION_EVENT_KINDS.includes(parsed.kind)
     ) {
       return null;

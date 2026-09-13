@@ -348,6 +348,71 @@ function ackingDeps(caller: SessionToolCaller, dir: string, spool: string) {
   });
 }
 
+test("session align re-reads the session after an acknowledged flush, so the freshness token is the row the flush wrote (M2 native trial: CONFLICT on an OpenCode first align)", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const spool = mkdtempSync(join(tmpdir(), "jspool-"));
+  liveHost(spool);
+  // The fake server: the first read answers the pre-flush row; once the
+  // flush request has been acked (deleted by the fake host), the acked beat
+  // has moved updatedAt — and align must send THAT one.
+  let reads = 0;
+  const aligns: Array<Record<string, unknown>> = [];
+  const flushPath = join(spool, "ses_al", "flush-request.json");
+  const caller = fakeCaller({
+    attach_agent_session: () => ({ id: "ses_al", workspaceId: "ws_1", projectId: null, status: "ACTIVE", converged: true }),
+    get_agent_session: () => {
+      reads += 1;
+      return {
+        id: "ses_al",
+        taskId: null,
+        updatedAt: reads === 1 ? "2026-09-13T10:05:20.000Z" : "2026-09-13T10:05:21.444Z",
+      };
+    },
+    get_task: () => ({ id: "task_42", key: "ACM-42", workspaceId: "ws_1" }),
+    align_agent_session: (args) => {
+      aligns.push(args);
+      if (args.expectedUpdatedAt !== "2026-09-13T10:05:21.444Z") {
+        throw new ToolCallError("session changed since your last read", "CONFLICT");
+      }
+      return {
+        alignment: {
+          version: 2,
+          alignedAt: "2026-09-13T10:05:22.000Z",
+          workspace: { id: "ws_1", name: "Acme", slug: "acme" },
+          task: { id: "task_42", key: "ACM-42", title: "Fix it" },
+          owner: { id: "u1", name: null, email: "op@example.com" },
+          agent: { provider: "opencode" },
+          repo: { ownerName: "acme/api", branch: "main" },
+          capture: "off",
+          skeleton: "on",
+        },
+        realigned: false,
+        captureSources: { capture: "(built-in)", skeleton: "(built-in)" },
+      };
+    },
+  });
+  const d = deps(caller, dir, {
+    spoolRoot: spool,
+    isPidAlive: () => true,
+    sleep: async () => {
+      if (existsSync(flushPath)) {
+        const { unlinkSync } = await import("node:fs");
+        unlinkSync(flushPath);
+      }
+    },
+  });
+  const code = await runSessionAlign(
+    { task: "ACM-42", provider: "opencode", providerSession: "ses_oc_1" },
+    d,
+  );
+  assert.equal(code, EXIT_CODES.OK, d.err.join("\n"));
+  assert.equal(reads, 2, "one read before the flush, one after");
+  assert.equal(aligns.length, 1);
+  assert.equal(aligns[0]!.expectedUpdatedAt, "2026-09-13T10:05:21.444Z");
+  assert.match(d.out.join("\n"), /Usage flush acknowledged/);
+});
+
 test("session align without --provider refuses when both Codex and Claude identify the process — never takes Claude first (JEN-536)", async () => {
   const dir = root();
   writeFolderBinding(dir, BINDING);
@@ -787,4 +852,99 @@ test("task project add resolves an ID + slug and links idempotently without fold
     { projectId: "prj_l", targetType: "TASK", targetId: "task_9" },
   ]);
   assert.doesNotMatch(d.out.join("\n"), /governed-worker/);
+});
+
+test("session align re-reads and retries ONCE when a concurrent writer wins the CAS between the read and the align (JEN-537, OpenCode pack C: the host's own beat)", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const spool = mkdtempSync(join(tmpdir(), "jspool-"));
+  liveHost(spool);
+  // Reads 1 and 2 are the pre-flush and post-flush rows; a host write lands
+  // AFTER read 2, so the first align conflicts; read 3 sees that write and
+  // the retried align carries it.
+  const rows = ["2026-09-13T10:37:49.000Z", "2026-09-13T10:37:50.500Z", "2026-09-13T10:37:50.703Z"];
+  let reads = 0;
+  const aligns: Array<Record<string, unknown>> = [];
+  const flushPath = join(spool, "ses_al", "flush-request.json");
+  const caller = fakeCaller({
+    attach_agent_session: () => ({ id: "ses_al", workspaceId: "ws_1", projectId: null, status: "ACTIVE", converged: true }),
+    get_agent_session: () => {
+      reads += 1;
+      return { id: "ses_al", taskId: null, updatedAt: rows[Math.min(reads, rows.length) - 1] };
+    },
+    get_task: () => ({ id: "task_42", key: "ACM-42", workspaceId: "ws_1" }),
+    align_agent_session: (args) => {
+      aligns.push(args);
+      if (args.expectedUpdatedAt !== rows[2]) {
+        throw new ToolCallError("session changed since your last read", "CONFLICT");
+      }
+      return {
+        alignment: {
+          version: 2,
+          alignedAt: "2026-09-13T10:37:51.000Z",
+          workspace: { id: "ws_1", name: "Acme", slug: "acme" },
+          task: { id: "task_42", key: "ACM-42", title: "Fix it" },
+          owner: { id: "u1", name: null, email: "op@example.com" },
+          agent: { provider: "opencode" },
+          repo: { ownerName: "acme/api", branch: "main" },
+          capture: "off",
+          skeleton: "on",
+        },
+        realigned: false,
+        captureSources: { capture: "(built-in)", skeleton: "(built-in)" },
+      };
+    },
+  });
+  const d = deps(caller, dir, {
+    spoolRoot: spool,
+    isPidAlive: () => true,
+    sleep: async () => {
+      if (existsSync(flushPath)) {
+        const { unlinkSync } = await import("node:fs");
+        unlinkSync(flushPath);
+      }
+    },
+  });
+  const code = await runSessionAlign(
+    { task: "ACM-42", provider: "opencode", providerSession: "ses_oc_1" },
+    d,
+  );
+  assert.equal(code, EXIT_CODES.OK, d.err.join("\n"));
+  assert.equal(reads, 3, "pre-flush, post-flush, and the re-read after the CONFLICT");
+  assert.deepEqual(aligns.map((a) => a.expectedUpdatedAt), [rows[1], rows[2]]);
+});
+
+test("session align surfaces a second CONFLICT instead of looping (JEN-537)", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const spool = mkdtempSync(join(tmpdir(), "jspool-"));
+  liveHost(spool);
+  const aligns: Array<Record<string, unknown>> = [];
+  const flushPath = join(spool, "ses_al", "flush-request.json");
+  const caller = fakeCaller({
+    attach_agent_session: () => ({ id: "ses_al", workspaceId: "ws_1", projectId: null, status: "ACTIVE", converged: true }),
+    get_agent_session: () => ({ id: "ses_al", taskId: null, updatedAt: "2026-09-13T10:37:49.000Z" }),
+    get_task: () => ({ id: "task_42", key: "ACM-42", workspaceId: "ws_1" }),
+    align_agent_session: (args) => {
+      aligns.push(args);
+      throw new ToolCallError("session changed since your last read", "CONFLICT");
+    },
+  });
+  const d = deps(caller, dir, {
+    spoolRoot: spool,
+    isPidAlive: () => true,
+    sleep: async () => {
+      if (existsSync(flushPath)) {
+        const { unlinkSync } = await import("node:fs");
+        unlinkSync(flushPath);
+      }
+    },
+  });
+  const code = await runSessionAlign(
+    { task: "ACM-42", provider: "opencode", providerSession: "ses_oc_1" },
+    d,
+  );
+  assert.notEqual(code, EXIT_CODES.OK);
+  assert.equal(aligns.length, 2, "exactly one retry");
+  assert.match(d.err.join("\n"), /session changed since your last read/);
 });

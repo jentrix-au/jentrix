@@ -12,10 +12,13 @@ the client says.
 | [`@jentrix/cli`](https://www.npmjs.com/package/@jentrix/cli) (this directory) | The `jentrix` command: every MCP tool as a shell command (`jentrix task list --board-id <id> --json`), OAuth sign-in, connected-session commands, `jentrix session doctor`, and the `jentrix-session-host` bin the plugins' hooks call |
 | [`@jentrix/plugin-claude`](https://www.npmjs.com/package/@jentrix/plugin-claude) (`plugins/claude`) | The official Claude Code plugin: `/jentrix-connect`, `/jentrix-align`, `/jentrix-plan`, `/jentrix-checkpoint`, `/jentrix-review`, `/jentrix-status`, `/jentrix-end` and the trusted lifecycle hooks |
 | [`@jentrix/plugin-codex`](https://www.npmjs.com/package/@jentrix/plugin-codex) (`plugins/codex`) | The official Codex plugin: the same seven workflows as `$jentrix-…` skills, plus the hooks |
+| [`@jentrix/plugin-opencode`](https://www.npmjs.com/package/@jentrix/plugin-opencode) (`plugins/opencode`) | The official OpenCode plugin: the same seven `/jentrix-…` commands registered in-process, session identity handed to every bash command, and the lifecycle/token-receipt ledger the session host reads |
+| [`@jentrix/plugin-pi`](https://www.npmjs.com/package/@jentrix/plugin-pi) (`plugins/pi`) | The official Pi package: the same seven `/jentrix-…` extension commands (injected as marked custom messages) and the same ledger |
 
-The CLI depends on both plugin packages with exact pins and materializes
-them into your provider with the hook commands pinned to absolute paths.
-MIT licensed, DCO signed, no CLA.
+The CLI depends on all four plugin packages with exact pins and materializes
+them into your provider — Claude Code and Codex with the hook commands pinned
+to absolute paths, OpenCode through one managed loader file, Pi through
+`pi install`. MIT licensed, DCO signed, no CLA.
 
 ## Install — one command
 
@@ -25,8 +28,8 @@ npx --yes --package @jentrix/cli@latest jentrix setup
 
 The same line works in bash, zsh, fish, PowerShell and cmd; it needs Node ≥ 20.
 `jentrix setup` checks the machine, installs the CLI globally, signs you in
-through the browser, installs the official plugin for the coding agent it
-finds (Claude Code, Codex, or both), and leaves the checkout connected. It is
+through the browser, installs the official plugin for every coding agent it
+finds (Claude Code, Codex, OpenCode, Pi), and leaves the checkout connected. It is
 preview-first: read the plan it prints, then confirm.
 
 Without Node on the machine, the hosted bootstrap installs it first and runs

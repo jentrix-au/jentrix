@@ -1,15 +1,15 @@
 /** Session alignment. */
 import { type SessionAlignFlags, type SessionCommandDeps } from "./deps";
 import {
-  readClaudeHookContext,
-  readCodexHookContext,
-  readCurrentProviderHookContext,
+  hookLedgerOffset,
+  hooksDir,
   readClaudeHookTranscript,
   readCodexRolloutPath,
-  hooksDir,
-  transcriptBelongsTo,
+  readCurrentProviderHookContext,
+  readProviderHookContext,
   telemetrySourceFor,
   telemetrySourceLines,
+  transcriptBelongsTo,
 } from "./provider-context";
 import {
   inspectCheckout,
@@ -34,7 +34,7 @@ import {
   renderRelatedEvidence,
 } from "./related-evidence";
 import { writeAlignmentMarker } from "./state";
-import { UsageError, callStructured } from "../tool-client";
+import { ToolCallError, UsageError, callStructured } from "../tool-client";
 import { requireFolderBinding } from "../binding";
 import { randomUUID } from "node:crypto";
 import { resolveTaskId } from "../task-resolution";
@@ -78,10 +78,7 @@ export async function runSessionAlign(
     if (!providerSessionId) {
       if (provider) {
         // The operator named the host: read that host's context only.
-        const context =
-          provider === "claude"
-            ? readClaudeHookContext(deps)
-            : readCodexHookContext(deps);
+        const context = readProviderHookContext(deps, provider);
         if (context) {
           providerSessionId = context.sessionId;
           transcriptPath = transcriptPath ?? context.transcriptPath ?? null;
@@ -104,7 +101,7 @@ export async function runSessionAlign(
       transcriptPath = readClaudeHookTranscript(deps, providerSessionId);
     } else if (provider === "codex" && !transcriptPath) {
       transcriptPath = readCodexRolloutPath(deps, providerSessionId);
-    }
+    } // opencode/pi: no file to bind — the plugin ledger is the source
     if (!provider || !providerSessionId) {
       throw new UsageError(
         "PROVIDER_SESSION_UNAVAILABLE: alignment anchors a LIVE session — run from inside a provider session (plugin hooks), or pass --provider <p> --provider-session <id> from trusted lifecycle context; retroactive ids are never guessed",
@@ -166,9 +163,22 @@ export async function runSessionAlign(
       const currentTaskId =
         typeof session.taskId === "string" ? session.taskId : null;
       let boundary: "FLUSHED" | "UNFLUSHED" | "NOT_REQUIRED" = "NOT_REQUIRED";
+      let expectedUpdatedAt = session.updatedAt;
       if (liveHost && alignChangesBucket(currentTaskId, taskId)) {
         const acked = await requestUsageFlush(deps, sessionId);
         boundary = acked ? "FLUSHED" : "UNFLUSHED";
+        if (acked) {
+          // M2 native trial (OpenCode, first align): the acknowledged beat
+          // WROTE the session row — usage and updatedAt — so the freshness
+          // token read above is stale by construction whenever the host had
+          // a receipt to flush, and the align that followed was refused with
+          // CONFLICT. Re-read after the flush and align against the row as
+          // it is now; the flush is the one write this command asked for.
+          const fresh = await callStructured(caller, "get_agent_session", {
+            sessionId,
+          });
+          expectedUpdatedAt = fresh.updatedAt;
+        }
         // `--json` promises a parseable document on stdout, and this line was
         // landing ABOVE it — `jq` and `JSON.parse` both die on it (JEN-457
         // follow-up, observed while verifying an align on prod). Nothing is
@@ -186,7 +196,7 @@ export async function runSessionAlign(
         }
       }
 
-      const aligned = await callStructured(caller, "align_agent_session", {
+      const alignArgs: Record<string, unknown> = {
         sessionId,
         taskId,
         ...(flags.owner ? { ownerUserId: flags.owner } : {}),
@@ -217,8 +227,28 @@ export async function runSessionAlign(
         ...(skeletonSubmission(flags.skeleton) !== undefined
           ? { skeleton: skeletonSubmission(flags.skeleton) }
           : {}),
-        expectedUpdatedAt: session.updatedAt,
-      });
+      };
+      const alignWith = (expected: unknown) =>
+        callStructured(caller, "align_agent_session", {
+          ...alignArgs,
+          expectedUpdatedAt: expected,
+        });
+      let aligned: Record<string, unknown>;
+      try {
+        aligned = await alignWith(expectedUpdatedAt);
+      } catch (error) {
+        // JEN-537 (OpenCode, pack C): ONE concurrent writer is legitimate
+        // here — the live host's heartbeat or alignment re-stamp landing
+        // between the read above and this write. The server's own remedy is
+        // "re-read and retry"; do it once, then surface whatever comes back.
+        if (!(error instanceof ToolCallError && error.code === "CONFLICT")) {
+          throw error;
+        }
+        const fresh = await callStructured(caller, "get_agent_session", {
+          sessionId,
+        });
+        aligned = await alignWith(fresh.updatedAt);
+      }
       const alignment = aligned.alignment as Record<string, unknown>;
       const captureMode: "on" | "off" =
         (alignment as { capture?: string }).capture === "on" ? "on" : "off";
@@ -288,7 +318,7 @@ export async function runSessionAlign(
       } else if (
         !liveHost &&
         ((provider === "claude" && transcriptPath) ||
-          (provider === "codex" && hookDir))
+          (provider !== "claude" && hookDir))
       ) {
         const auth = hostAuthOf(deps);
         const pid = await launchHostDetached(
@@ -306,7 +336,7 @@ export async function runSessionAlign(
             mode: "watch",
             providerSessionId,
             ...(transcriptPath ? { transcriptPath } : {}),
-            ...(hookDir ? { hookDir } : {}),
+            ...(hookDir ? { hookDir, hookOffset: hookLedgerOffset(hookDir) } : {}),
             captureTrace: captureMode === "on",
             collectSkeleton: skeletonMode === "on",
             ...(captureSources?.capture

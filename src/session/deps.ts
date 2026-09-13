@@ -1,5 +1,6 @@
 /** Session deps. */
 import { type SessionToolCaller } from "../tool-client";
+import type { SessionProvider } from "../session-host/session-events";
 import { type GitRunner } from "../repo";
 import type { PluginInvocation, PluginPathProbe } from "../commands/plugin";
 
@@ -12,6 +13,13 @@ export interface ClientProbeDeps extends PluginPathProbe {
   resolveCodex(): Promise<string | null>;
   invoke(file: string, args: string[]): Promise<PluginInvocation>;
   homeDir(): string;
+  // M2 (JEN-537): the plugin hosts. Optional — a probe without them reports
+  // nothing for those hosts rather than failing to construct.
+  resolveOpenCodePluginDir?(): string | null;
+  resolvePiPluginDir?(): string | null;
+  resolveOpenCode?(): Promise<string | null>;
+  resolvePi?(): Promise<string | null>;
+  env?(): Record<string, string | undefined>;
 }
 
 export interface SessionCommandDeps {
@@ -98,7 +106,7 @@ export interface SessionStartFlags {
 }
 
 export interface SessionAttachFlags extends SessionStartFlags {
-  provider?: "claude" | "codex";
+  provider?: SessionProvider;
   providerSession?: string;
   transcriptPath?: string;
   importHistory?: boolean;
@@ -139,7 +147,7 @@ export interface SessionAlignFlags {
   capture?: boolean;
   skeleton?: boolean;
   budget?: number | false;
-  provider?: "claude" | "codex";
+  provider?: SessionProvider;
   providerSession?: string;
   transcriptPath?: string;
   json?: boolean;
