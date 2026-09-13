@@ -14,7 +14,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
@@ -112,14 +112,15 @@ describe("packed tarballs — cold install of the three packages", () => {
         //     a source-tree fixture.
         {
           const tampered = mkdtempSync(join(tmpdir(), "jentrix-pack-tamper-"));
-          for (const f of [cliTgz, codexTgz]) cpSync(join(work, f), join(tampered, f));
+          // The tarball paths are already absolute (`tarball()` joins `work`).
+          for (const f of [cliTgz, codexTgz]) cpSync(f, join(tampered, basename(f)));
           const scratch = mkdtempSync(join(tmpdir(), "jentrix-pack-tamper-src-"));
-          execFileSync("tar", ["-xzf", join(work, claudeTgz), "-C", scratch]);
+          execFileSync("tar", ["-xzf", claudeTgz, "-C", scratch]);
           const pkgPath = join(scratch, "package", "package.json");
           const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { jentrix: { cliRange: string } };
           pkg.jentrix.cliRange = ">=99.0.0 <100.0.0";
           writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-          execFileSync("tar", ["-czf", join(tampered, claudeTgz), "-C", scratch, "package"]);
+          execFileSync("tar", ["-czf", join(tampered, basename(claudeTgz)), "-C", scratch, "package"]);
           let refused = "";
           try {
             execFileSync(
