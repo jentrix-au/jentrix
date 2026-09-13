@@ -22,7 +22,13 @@
  * operator — `||`, `|`, `|&`, `;`, `&`, newlines, `(`/`)`/`{`/`}` grouping,
  * `$( )` and backtick substitution, `!` negation, line continuations — refuses
  * the line whether or not it is surrounded by spaces (`… ||true`, `…|cat` were
- * the review's reproductions). Redirections (`2>&1`, `>out.txt`) are dropped:
+ * the review's reproductions). A `#` comment ends at ITS line, never at the
+ * end of the input, so the newline after it still refuses (candidate-6
+ * review: `node --test fail.test.mjs # c⏎true` exits 0). Any `$` outside
+ * single quotes — `$NAME`, `"$NAME"`, `${NAME}`, `$?` — is an expansion the
+ * receipt cannot see through (`"$FLAG"` = `--help`, `"$FILE"` = a path in
+ * another checkout) and refuses the line; `'$literal'` and `\$` stay text.
+ * Redirections (`2>&1`, `>out.txt`) are dropped:
  * they change no exit status. A command that changes the execution directory
  * (`cd`, `pushd`, `popd`, a package manager's `--prefix`/`-C`/`--filter`) or
  * reaches outside the checkout (an absolute or `..`/`~` path argument) is
@@ -148,6 +154,7 @@ export function lexShellLine(line: string): LexResult {
         }
         if (d === "`") return refuse("command substitution (`…`)");
         if (d === "$" && line[i + 1] === "(") return refuse("command substitution ($(…))");
+        if (d === "$") return refuse("variable expansion (`$…`)");
         word += d;
         i += 1;
       }
@@ -166,6 +173,7 @@ export function lexShellLine(line: string): LexResult {
     }
     if (c === "`") return refuse("command substitution (`…`)");
     if (c === "$" && line[i + 1] === "(") return refuse("command substitution ($(…))");
+    if (c === "$") return refuse("variable expansion (`$…`)");
     if (c === "(" || c === ")") return refuse("a subshell (parentheses)");
     if (c === "{" || c === "}") return refuse("brace grouping or expansion");
     if (c === "\n" || c === "\r") return refuse("a newline (a second command)");
@@ -221,7 +229,14 @@ export function lexShellLine(line: string): LexResult {
       i += 1;
       continue;
     }
-    if (c === "#" && !open) break; // a comment runs to the end of the line
+    if (c === "#" && !open) {
+      // A comment runs to the end of ITS line, not of the input: the newline
+      // after it is a second command and refuses like any other newline.
+      const eol = line.slice(i).search(/[\n\r]/);
+      if (eol < 0) break;
+      i += eol;
+      continue;
+    }
     if (c === "!" && !open) return refuse("`!` (exit-status negation)");
     word += c;
     open = true;
@@ -540,7 +555,7 @@ export function classifyGateCommand(command: string, ctx: GateContext = {}): Gat
   }
   const lexed = lexShellLine(line);
   if (lexed.refusal) {
-    return { ...none, reason: `${lexed.refusal} hides or replaces the gate's exit status — chain gates with \`&&\` only, one plain command per segment` };
+    return { ...none, reason: `${lexed.refusal} hides or replaces the gate's exit status or its arguments — chain gates with \`&&\` only, one plain command per segment, literal arguments (no \`$\` expansion outside single quotes)` };
   }
   const segments = segmentsOf(lexed.tokens);
   if (segments.length === 0) return { ...none, reason: "the command runs nothing" };

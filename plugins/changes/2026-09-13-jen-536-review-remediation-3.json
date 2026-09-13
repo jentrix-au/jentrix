@@ -1,0 +1,60 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-13-jen-536-review-remediation-3",
+  "issue": "JEN-536",
+  "title": "Candidate-6 review remediation (reports/plugin-m1-review-candidate-6-2026-09-13): F01 a `#` comment ends at its line so the newline after it refuses; F01/F02a any `$` expansion outside single quotes refuses (`\"$FLAG\"` = --help, `\"$FILE\"` = another checkout); F07 a close with no rollup keeps the session's stored usage in the summary (server); plan workflow pushes the PLAN artifact and never fabricates approval; end workflow's optional mints never block the close",
+  "behaviors": [
+    "P03",
+    "P07",
+    "R03",
+    "P16"
+  ],
+  "base": {
+    "revision": "4aef789482d4849da3a6d4aab761ee24a73f56e0"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "plugins/changes/2026-09-13-jen-536-review-remediation-3.json",
+    "plugins/claude/commands/",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/codex/plugins/jentrix/skills/",
+    "plugins/registry.json",
+    "plugins/workflows/common.md",
+    "plugins/workflows/end.md",
+    "plugins/workflows/plan.md",
+    "src/session-host/gate-classifier.ts",
+    "test/gate-classifier.test.ts",
+    "test/review-2026-09-13.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/gate-classifier.test.ts",
+        "test/review-2026-09-13.test.ts",
+        "test/plugin-sync-conformance.test.ts"
+      ],
+      "rationale": "The lexer holes live in the shared classifier both hosts' receipts run through; the regenerated /jentrix-plan pushes the PLAN and states the headless rule, /jentrix-end makes optional mints non-blocking and names the two new refusals. F07 is a server change (task-manager src/server/agent-sessions/summary.ts) with no host-side code."
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/gate-classifier.test.ts",
+        "test/review-2026-09-13.test.ts",
+        "test/plugin-sync-conformance.test.ts"
+      ],
+      "rationale": "Same shared classifier and the same regenerated $jentrix-plan / $jentrix-end skill text; Codex trials run the identical workflow sources."
+    },
+    "opencode": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    },
+    "pi": {
+      "disposition": "planned",
+      "plannedIn": "JEN-537"
+    }
+  }
+}

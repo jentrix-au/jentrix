@@ -96,6 +96,8 @@ semantic checkpoint (answer a `Checkpoint requested:` line from `session
 status` — a hook cannot distil, only a model turn can); `push log --from-cmd`
 is a verification receipt that counts only for a gate bound to a package
 script, a known runner or a reviewed wrapper, run from the checkout root as one
-plain `&&`-chained line (no `||`/`|`/`;`, no `cd`, no help/version flags), at
-exit 0, on the revision and working tree the session closes on.
+plain `&&`-chained line of literal arguments (no `||`/`|`/`;`, no `cd`, no
+help/version flags, no `$VAR` expansion outside single quotes, no second line
+after a `#` comment), at exit 0, on the revision and working tree the session
+closes on.
 What the host records on its own is provisional and says so.

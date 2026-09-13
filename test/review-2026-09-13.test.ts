@@ -197,3 +197,68 @@ describe("2026-09-13 review — F03: a replacement-output retry re-sends the SAM
     assert.equal(record.body, before, "the record holds the exact payload");
   });
 });
+
+// The candidate-6 review (reports/plugin-m1-review-candidate-6-2026-09-13/
+// review-probes.ts): the two lexer holes it reproduced with a real shell.
+describe("candidate-6 review — F01/F02a: a comment cannot hide a second line; `$` expansion is never a gate", () => {
+  it("`… # comment⏎true` and `\"$VAR\"` (= --help, = a path in another checkout) exit 0 for real and are refused through the real receipt", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jentrix-c6-"));
+    const a = join(dir, "project-a");
+    const b = join(dir, "project-b");
+    mkdirSync(a);
+    mkdirSync(b);
+    writeFileSync(join(a, "fail.test.mjs"), "import test from 'node:test';test('FAIL_IN_A',()=>{throw new Error('intentional fixture failure')});\n");
+    writeFileSync(join(a, "pass.test.mjs"), "import test from 'node:test';test('PASS_IN_A',()=>{});\n");
+    writeFileSync(join(b, "pass.test.mjs"), "import test from 'node:test';test('ONLY_PROJECT_B',()=>{});\n");
+    const run = (command: string, extra: Record<string, string> = {}) =>
+      spawnSync("/bin/sh", ["-c", command], { cwd: a, encoding: "utf8", env: { ...cleanEnv, ...extra } });
+    const receiptOf = (command: string, ran: ReturnType<typeof run>) =>
+      parseSemanticHeader(
+        buildVerificationReceipt({
+          command,
+          exitCode: ran.status ?? 1,
+          output: ran.stdout + ran.stderr,
+          cwd: a,
+          repo: { ownerName: "fixture/project-a", root: a, revision: "fixture-head", dirtyDigest: "fixture-digest" },
+          startedAt: "2026-09-13T01:00:00Z",
+          endedAt: "2026-09-13T01:00:01Z",
+        }),
+      )!;
+    assert.notEqual(run("node --test fail.test.mjs").status, 0, "the fixture really fails");
+
+    const comment = "node --test fail.test.mjs # comment\ntrue";
+    const commentRan = run(comment);
+    assert.equal(commentRan.status, 0, "the second line makes the shell exit 0");
+    assert.equal(classifyGateCommand(comment).allowlisted, false);
+    assert.match(String(receiptOf(comment, commentRan).gateReason), /newline/);
+
+    const help = 'node --test "$C6_REVIEW_FLAG"';
+    const helpRan = run(help, { C6_REVIEW_FLAG: "--help" });
+    assert.equal(helpRan.status, 0);
+    assert.match(helpRan.stdout, /Usage: node/);
+    assert.equal(classifyGateCommand(help).allowlisted, false);
+    assert.match(String(receiptOf(help, helpRan).gateReason), /variable expansion/);
+
+    const outside = 'node --test "$C6_REVIEW_TEST"';
+    const outsideRan = run(outside, { C6_REVIEW_TEST: join(b, "pass.test.mjs") });
+    assert.equal(outsideRan.status, 0);
+    assert.match(outsideRan.stdout, /ONLY_PROJECT_B/, "the shell really ran B's test from A");
+    for (const command of [outside, "node --test $C6_REVIEW_TEST", 'node --test "${C6_REVIEW_TEST}"', "T=$C6_REVIEW_TEST node --test pass.test.mjs"]) {
+      const verdict = classifyGateCommand(command);
+      assert.equal(verdict.allowlisted, false, command);
+      assert.match(String(verdict.reason), /variable expansion/);
+    }
+    assert.equal(receiptOf(outside, outsideRan).gateAllowlisted, false);
+
+    // Literal text survives: a trailing comment, a single-quoted `$`, an
+    // escaped `$`, and an env prefix the command never expands.
+    for (const command of ["node --test pass.test.mjs # note", "node --test 'pass.test.mjs' # $HOME", "X=--help node --test pass.test.mjs"]) {
+      const ran = run(command);
+      assert.equal(ran.status, 0, command);
+      assert.match(ran.stdout, /PASS_IN_A/);
+      const header = receiptOf(command, ran);
+      assert.equal(header.gateAllowlisted, true, command);
+      assert.deepEqual(header.gateFamilies, ["test"]);
+    }
+  });
+});

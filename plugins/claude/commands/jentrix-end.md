@@ -68,15 +68,21 @@ pipeline), the typed artifacts ARE the record — push them before closing:
    Ask the operator (native choice UI) before pushing anything they might
    not want recorded; never invent content — summarize what actually
    happened.
-2. **Batched mint confirmations.** Collect this session's gap/issue/findings
-   artifacts that are not yet cards (each push printed its offer) and ask the
-   operator ONCE, as a single native choice list: which should become cards?
-   For each accepted one run
+2. **Batched mint confirmations — optional, never blocking.** Collect this
+   session's gap/issue/findings artifacts that are not yet cards (each push
+   printed its offer) and ask the operator ONCE, as a single native choice
+   list: which should become cards? For each accepted one run
    `jentrix artifact mint-issue --artifact <id> --from-task <taskId>`
    (add `--blocks` when it blocks acceptance of the aligned task). Mints are
    idempotent per artifact (`mint-<artifactId>`), so a retry converges on the
    same card. A declined mint leaves the artifact exactly as pushed — never
-   nag again, never mint unasked.
+   nag again, never mint unasked. **If no answer can arrive** — a
+   non-interactive run, or the operator does not reply — mint nothing, list
+   the artifact ids whose mint is still pending in the report you pushed in
+   step 1 (or in your closing reply), and go on to steps 3 and 4: the
+   artifacts are already preserved, and closing the session is what
+   preserves the rest. Never pick an answer for the operator, and never let
+   an optional mint stand between the session and its close.
 3. Move the aligned task to the board's **"In review"** column when the work
    is finished — not to a terminal one. Acceptance is a human's to record
    (Accept / Return on the task panel writes who decided, when, and on which
@@ -95,7 +101,9 @@ pipeline), the typed artifacts ARE the record — push them before closing:
    session status` shows); pass an id only when the operator names a different
    session. If the CLI reports ambiguous sessions, ask the operator which one;
    never choose a sibling. Telemetry is recorded by the session host's attested path — never
-   report token numbers yourself.
+   report token numbers yourself. The RUN_SUMMARY does not exist before this
+   step — `session end` is what writes it — so its absence in `session
+   status` is expected and is never a reason to hold off the close.
 5. **Relay the closing telemetry line verbatim.** `session end` prints a
    `Telemetry:` line, and on stderr it may print `NO TOKEN TELEMETRY: …`.
    Exit 0 does NOT mean telemetry was recorded — on 2026-08-11 a real session
@@ -140,12 +148,15 @@ REFUSE to close when they are unmet:
   not cover it). `--from-cmd "echo tests green"`, an inline `node -e "…"`,
   or a line composed with `||`, `;`, `|` or `&` — glued or spaced — records a
   LOG and proves nothing, and so do `--help`/`--version`/`--listTests`-style
-  runs, subshells, `$(…)` substitution, a `cd`/`pushd` or `--prefix`/`-C`/
-  `--filter` that moves execution, and any argument that reaches outside the
-  checkout (an absolute or `../` path). The CLI says why when you push one.
-  Run the gate from the checkout root, chain gates only with `&&`, never pipe
-  the gate (`| tail`): the exit code recorded would be the pipe's. A red gate
-  you are recording on purpose takes `--expected-failure`.
+  runs, subshells, `$(…)` substitution, any `$VAR`/`${VAR}` expansion outside
+  single quotes (the receipt cannot see what the shell substituted — `"$FLAG"`
+  may be `--help`, `"$FILE"` a path in another checkout), a second line after
+  a `#` comment, a `cd`/`pushd` or `--prefix`/`-C`/`--filter` that moves
+  execution, and any argument that reaches outside the checkout (an absolute
+  or `../` path). The CLI says why when you push one. Run the gate from the
+  checkout root as one line of literal arguments, chain gates only with
+  `&&`, never pipe the gate (`| tail`): the exit code recorded would be the
+  pipe's. A red gate you are recording on purpose takes `--expected-failure`.
 
 Comply by pushing the named evidence and retrying, or deviate honestly with a
 `gap`. `--acknowledge-evidence-gaps` closes anyway and stamps each unmet check
@@ -186,6 +197,8 @@ semantic checkpoint (answer a `Checkpoint requested:` line from `session
 status` — a hook cannot distil, only a model turn can); `push log --from-cmd`
 is a verification receipt that counts only for a gate bound to a package
 script, a known runner or a reviewed wrapper, run from the checkout root as one
-plain `&&`-chained line (no `||`/`|`/`;`, no `cd`, no help/version flags), at
-exit 0, on the revision and working tree the session closes on.
+plain `&&`-chained line of literal arguments (no `||`/`|`/`;`, no `cd`, no
+help/version flags, no `$VAR` expansion outside single quotes, no second line
+after a `#` comment), at exit 0, on the revision and working tree the session
+closes on.
 What the host records on its own is provisional and says so.

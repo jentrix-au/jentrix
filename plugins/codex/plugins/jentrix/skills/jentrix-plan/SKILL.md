@@ -41,10 +41,21 @@ task deep. This command extends the same rule to the rest.
 - **Propose few tasks.** A task is a commitment, not a restatement of the
   prompt. Two or three real units of work beat six that mirror your plan's
   headings. If the prompt is one unit of work, say so and create nothing.
-- **The prompt is provenance, the tasks are commitments.** Save the prompt
-  once, verbatim, as a `prompt` artifact; do not transcribe it into task
-  titles. The approved goal is its own `goal` artifact — the inputs are typed
-  records the RUN_SUMMARY's Intent cites, not prose folded into a plan.
+- **The prompt is provenance, the tasks are commitments, the plan is the
+  record of the decomposition.** Save the prompt once, verbatim, as a
+  `prompt` artifact; do not transcribe it into task titles. The approved goal
+  is its own `goal` artifact, and the decomposition itself — goal, task
+  titles, what was approved and what is still pending — is a `plan` artifact.
+  The inputs are typed records the RUN_SUMMARY's Intent and Plan history
+  cite, not prose folded into chat. The PLAN exists whether or not any card
+  gets created: it records what was proposed and decided.
+- **Never fabricate approval.** When the native choice UI cannot answer
+  (a non-interactive run, an operator who has not replied), the approvals
+  already in hand still stand — the aligned task's title is the operator's
+  words, and a goal the opening prompt states in its own terms is the
+  operator's goal — but a title they have not seen is only a proposal.
+  Preserve the proposals as the PLAN, create no cards for them, and say in
+  your reply which decisions are pending. Silence is not a yes.
 - Read the board's real columns before placing anything. Never invent a
   column or a status.
 
@@ -76,10 +87,19 @@ task deep. This command extends the same rule to the rest.
      `jentrix push goal --title "Goal"` with the approved goal sentence on
      stdin;
    - when a PRD exists for this work, push it too:
-     `jentrix push prd --title "<PRD title>"` with the PRD body on stdin.
+     `jentrix push prd --title "<PRD title>"` with the PRD body on stdin;
+   - push the plan — ALWAYS, even when the operator approved nothing yet or
+     declined every card: `jentrix push plan --title "Plan"` with, on stdin,
+     the goal sentence, each proposed task title marked `approved` /
+     `pending` / `declined`, the ids and keys of the cards that were
+     created, and the column they landed in. A plan with every title
+     `pending` is a true record of a headless run; a session with no PLAN
+     artifact has no record that a decomposition happened at all.
 6. Report the created ids and keys back to the operator, and say which task
    you are starting on. Move that one into the working column
-   (`jentrix task move --task <id> --to-column-id <id>`).
+   (`jentrix task move --task <id> --to-column-id <id>`). When confirmation
+   is still pending, say so and continue with the aligned task — do not wait
+   on an answer that cannot arrive.
 
 If the operator declines the plan, create nothing and say so plainly. An
 un-decomposed prompt is a normal outcome; a board full of speculative tasks is
@@ -118,6 +138,8 @@ semantic checkpoint (answer a `Checkpoint requested:` line from `session
 status` — a hook cannot distil, only a model turn can); `push log --from-cmd`
 is a verification receipt that counts only for a gate bound to a package
 script, a known runner or a reviewed wrapper, run from the checkout root as one
-plain `&&`-chained line (no `||`/`|`/`;`, no `cd`, no help/version flags), at
-exit 0, on the revision and working tree the session closes on.
+plain `&&`-chained line of literal arguments (no `||`/`|`/`;`, no `cd`, no
+help/version flags, no `$VAR` expansion outside single quotes, no second line
+after a `#` comment), at exit 0, on the revision and working tree the session
+closes on.
 What the host records on its own is provisional and says so.

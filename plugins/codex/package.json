@@ -33,9 +33,9 @@
   },
   "jentrix": {
     "host": "codex",
-    "behaviorRevision": "2026.09.13-1",
+    "behaviorRevision": "2026.09.13-2",
     "semanticSchemaRevision": 1,
-    "resourceDigest": "b3eb35c250d52c38135d77285195c34c226a94db5b2383a69a140c7bf45bd5c9",
+    "resourceDigest": "79afedf6990194488af85f97428282b2e8e43ef03febf8ea80093354e47e0587",
     "cliRange": ">=0.10.1 <1.0.0"
   }
 }
