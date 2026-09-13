@@ -4,7 +4,7 @@ name: release
 # `@jentrix/plugin-codex`, `@jentrix/plugin-opencode`, `@jentrix/plugin-pi`
 # and `@jentrix/cli` — when a `cli-v*` tag is pushed,
 # PACK-ONCE and STRAIGHT TO `latest`: `pnpm -r pack` runs exactly once, the
-# three tarballs are clean-installed and exercised TOGETHER, and the very same
+# five tarballs are clean-installed and exercised TOGETHER, and the very same
 # files are then `npm publish`ed under the `latest` dist-tag — plugins first,
 # the CLI last, because the CLI's package.json pins the plugin versions and must
 # never be installable before they are. Nothing repacks between validation and
@@ -38,7 +38,7 @@ name: release
 # repository + workflow file + ENVIRONMENT, which is why `id-token: write` and
 # `environment: release` below are both load-bearing, and why renaming this
 # file or the environment breaks publishing until the trusted publisher is
-# re-pointed on npmjs.com. EACH of the three packages needs its own
+# re-pointed on npmjs.com. EACH of the five packages needs its own
 # trusted-publisher entry there (organization or user `jentrix-au`, repository
 # `jentrix`, workflow `release.yml`, environment `release`, allowed action: npm
 # publish). The `release` environment carries a required reviewer, so EVERY
@@ -121,7 +121,7 @@ jobs:
           pnpm test
 
       # PACK ONCE. `prepack` builds dist/ inside the CLI package; pnpm rewrites
-      # every `workspace:*` range to the exact version. These three files are
+      # every `workspace:*` range to the exact version. These five files are
       # what gets validated AND what gets published — nothing repacks after
       # this step, and any `workspace:` range that survived is a red build.
       - name: Pack the five packages once

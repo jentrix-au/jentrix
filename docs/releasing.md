@@ -75,17 +75,36 @@ deleted from the repository and revoked on npmjs.com.
    there is no npm credential in this repository or its Actions secrets. On
    npmjs.com, for **each** of `@jentrix/cli`, `@jentrix/plugin-claude`,
    `@jentrix/plugin-codex`, `@jentrix/plugin-opencode` and `@jentrix/plugin-pi`
-   (the last two are NEW packages: register their trusted publishers BEFORE
-   the first tag that ships them, or the train stops at their publish step):
+   (new package names need the bootstrap below before their first tag):
    package → Settings → Trusted publisher → *Select
    your publisher* → GitHub Actions, with **organization or user `jentrix-au`,
    repository `jentrix`, workflow `release.yml`, environment `release`**, and
    **Allowed actions: npm publish** (a required field, easy to miss — an
    incomplete form saves nothing and says nothing). Every package needs its
    own entry — a release that publishes one and fails the other is worse
-   than one that fails first. npm binds ONE publisher per package: registering
-   this repository replaces any earlier binding (the packages were published
-   from the private application repository before extraction).
+   than one that fails first. Verify the binding names this public repository;
+   the original packages were published from the private application repository
+   before extraction.
+
+   **New package bootstrap.** npm requires the package to exist before a
+   trusted publisher can be configured ([npm trust](https://docs.npmjs.com/cli/v11/commands/npm-trust)).
+   After the required server contract is live, obtain maintainer authorization
+   to publish each new plugin name once from its verified tarball with a
+   browser-authenticated npm account (`npm publish <tarball> --access public
+   --tag latest`). Wait until `npm view <package>@<version> version` confirms
+   the version is available before doing anything that could publish it again.
+   Then configure the trusted publisher above, or use npm >=11.15:
+
+   ```bash
+   npm trust github @jentrix/plugin-opencode --file release.yml --repository jentrix-au/jentrix --environment release --allow-publish --yes
+   npm trust github @jentrix/plugin-pi --file release.yml --repository jentrix-au/jentrix --environment release --allow-publish --yes
+   ```
+
+   Approve the account's browser 2FA flow, then run the protected workflow
+   manually to prove OIDC for every package. The first tagged train sees the
+   already-visible, unchanged plugin versions as clean no-ops and publishes the
+   remaining plugins before the CLI. This bootstrap is only for new plugin
+   names; never hand-publish the CLI version that the tagged train will publish.
 
    **Verify it without cutting a release**: run the workflow manually
    (`gh workflow run release.yml --ref main`, or the Actions UI), approve the `release` deployment when it asks. A manual
@@ -262,13 +281,13 @@ The registry refuses an unprotected publish outright, so this requires
    pnpm test`.
 2. `pnpm -r pack --pack-destination /tmp/jx-pack`, then `npm login`
    (`npm whoami` must print your account) and `npm publish <tarball> --access
-   public --tag next` for the two plugins, then the CLI, WITHOUT `--otp`: a
+   public --tag latest` for all four plugins, then the CLI, WITHOUT `--otp`: a
    passkey account approves each publish in the browser (npm prints
    `Authenticate your account at …`), an authenticator-app account types the
    current code at `Enter OTP:`. Publish the tarballs, never the directories
    (a directory publish repacks).
-3. Promote by hand (`npm dist-tag add … latest`, plugins first, CLI last) and
-   `gh release create` the tag by hand.
+3. Wait for the registry to confirm all five versions and their `latest`
+   tags, then `gh release create` the tag by hand.
 
 Do NOT rerun the failed workflow afterwards — npm refuses duplicate versions;
 the Homebrew tap catches up on the next tagged release.

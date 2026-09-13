@@ -43,7 +43,7 @@ exchanged() {
 if [ -n "$DRY" ]; then
   if ! exchanged; then
     reason="$(grep -Eo "OIDC token exchange error[^\"]*" "$log" | head -n1 || true)"
-    echo "::error::$tarball: the dry run proved nothing — no OIDC exchange succeeded${reason:+ ($reason)}. No trusted publisher is registered for this package on npmjs.com (for a package that is not on npm yet, register one against jentrix-au/jentrix + release.yml + environment release — docs/releasing.md)."
+    echo "::error::$tarball: the dry run proved nothing — no OIDC exchange succeeded${reason:+ ($reason)}. No trusted publisher is registered for this package on npmjs.com (for a new package, complete the authorized first-publication bootstrap in docs/releasing.md, then register jentrix-au/jentrix + release.yml + environment release)."
     exit 1
   fi
   if [ "$status" -eq 0 ]; then
