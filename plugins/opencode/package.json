@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/plugin-opencode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The official Jentrix plugin for OpenCode: connected-session commands, trusted session identity for every bash command, and the lifecycle/token-receipt ledger the Jentrix CLI's session host reads (jentrix plugin install opencode).",
   "keywords": [
     "jentrix",
@@ -45,9 +45,9 @@
   },
   "jentrix": {
     "host": "opencode",
-    "behaviorRevision": "2026.09.13-3",
+    "behaviorRevision": "2026.09.14-1",
     "semanticSchemaRevision": 1,
-    "resourceDigest": "0d817a4bef98cff549e5949441ce8a3941984188ca47994f3ea76162fb835638",
-    "cliRange": ">=0.11.0 <1.0.0"
+    "resourceDigest": "cf278d0162e4448ebd54d7284372ce2aa87d41f343b9d15eacf3cbb8ddd6ecf2",
+    "cliRange": ">=0.11.1 <1.0.0"
   }
 }

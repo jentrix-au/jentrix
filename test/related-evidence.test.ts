@@ -89,3 +89,16 @@ test("malformed rows are tolerated field by field, never thrown on", () => {
     },
   ]);
 });
+
+
+test("the card footer is identical after rows and none, and absent for an older server (JEN-545)", () => {
+  const context = { workspaceId: "ws_1", taskId: "task_42" };
+  const footer = [
+    '  Beyond this card: jentrix artifact find-related --workspace ws_1 --query "<one subject>" --limit 25 --types PRD --types PLAN --types DECISION_MEMO --types FINDINGS --types REPORT --types LEARNING --types GAP --types ISSUE --types DELIVERABLE',
+    "  One subject per query; 25 hits is the ceiling; scores are on the query scale, a ranking to read from the top. Everything on a card: jentrix artifact list --workspace ws_1 --task task_42",
+  ];
+  assert.deepEqual(renderRelatedEvidence([HIT], undefined, context).slice(-2), footer);
+  assert.deepEqual(renderRelatedEvidence([], undefined, context), ["Related evidence: none", ...footer]);
+  assert.deepEqual(renderRelatedEvidence([], "No embedding yet.", context), ["Related evidence: none — No embedding yet.", ...footer]);
+  assert.deepEqual(renderRelatedEvidence(null, undefined, context), []);
+});

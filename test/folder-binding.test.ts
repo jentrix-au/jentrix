@@ -32,6 +32,7 @@ import {
   runFolderClear,
   runFolderStatus,
 } from "../src/commands/folder";
+import { renderContext } from "../src/commands/task-context";
 import { EXIT_CODES } from "../src/errors";
 import { runSessionAlign } from "../src/session/alignment";
 import { runSessionStatus } from "../src/session/status";
@@ -446,6 +447,13 @@ test("session align prints the Related evidence block the server returned, and p
     /LEARNING {7}art_7 {2}Learning: the reaper releases the lease before the retry {2}· {2}84% {2}· {2}on ACM-11/,
   );
   assert.match(out, /^ {4}The reaper released the lease before the retry\.$/m);
+  assert.match(out, /\n  Beyond this card: jentrix artifact find-related --workspace ws_1 --query "<one subject>" --limit 25 --types PRD/);
+  assert.match(out, /\n  One subject per query;.*--workspace ws_1 --task task_42$/);
+  const context = renderContext({
+    task: { id: "task_42", workspaceId: "ws_1", key: "ACM-42", title: "Fix it" },
+    artifacts: [], comments: [], related: [RELATED_HIT], unavailable: [],
+  });
+  assert.equal(out.slice(out.indexOf("Related evidence (1):")), context.slice(context.indexOf("Related evidence (1):")));
 
   const jd = ackingDeps(caller, dir, spool);
   assert.equal(
@@ -455,6 +463,8 @@ test("session align prints the Related evidence block the server returned, and p
   const parsed = JSON.parse(jd.out.at(-1)!) as Record<string, unknown>;
   assert.deepEqual(parsed.relatedArtifacts, [RELATED_HIT]);
   assert.equal("relatedArtifactsNotice" in parsed, false);
+  assert.doesNotMatch(jd.out.at(-1)!, /Beyond this card:|One subject per query/);
+  assert.deepEqual(Object.keys(parsed).sort(), ["alignment", "boundary", "captureMode", "captureSources", "realigned", "relatedArtifacts", "sessionId", "telemetrySource"]);
 });
 
 test("session align: an empty block prints the server's reason; an older server's absent field prints nothing (D13)", async () => {
@@ -470,7 +480,7 @@ test("session align: an empty block prints the server's reason; an older server'
   assert.equal(await runSessionAlign(ALIGN_FLAGS, d), EXIT_CODES.OK);
   assert.match(
     d.out.join("\n"),
-    /Related evidence: none — This task has no embedding yet — retry shortly\./,
+    /Related evidence: none — This task has no embedding yet — retry shortly\.\n  Beyond this card:/,
   );
   const jd = ackingDeps(empty.caller, dir, spool);
   await runSessionAlign({ ...ALIGN_FLAGS, json: true }, jd);
@@ -484,7 +494,7 @@ test("session align: an empty block prints the server's reason; an older server'
   const older = alignWorld(dir, spool);
   const od = ackingDeps(older.caller, dir, spool);
   assert.equal(await runSessionAlign(ALIGN_FLAGS, od), EXIT_CODES.OK);
-  assert.doesNotMatch(od.out.join("\n"), /Related evidence/);
+  assert.doesNotMatch(od.out.join("\n"), /Related evidence|Beyond this card:|One subject per query/);
   const ojd = ackingDeps(older.caller, dir, spool);
   await runSessionAlign({ ...ALIGN_FLAGS, json: true }, ojd);
   const oparsed = JSON.parse(ojd.out.at(-1)!) as Record<string, unknown>;

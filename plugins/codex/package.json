@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/plugin-codex",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "The official Jentrix plugin for Codex: connected-session skills and trusted lifecycle hooks, materialized by the Jentrix CLI (jentrix plugin install codex).",
   "keywords": [
     "jentrix",
@@ -33,9 +33,9 @@
   },
   "jentrix": {
     "host": "codex",
-    "behaviorRevision": "2026.09.13-3",
+    "behaviorRevision": "2026.09.14-1",
     "semanticSchemaRevision": 1,
-    "resourceDigest": "e4cca6c3fc9c8c93a9fd39350c7a9f966e6112514d7649dd04f64f90ed1fceff",
-    "cliRange": ">=0.11.0 <1.0.0"
+    "resourceDigest": "c2d4871017d35ea294edfe32a027227d2482e588d1c7f0ff0e2a7131e2d42adf",
+    "cliRange": ">=0.11.1 <1.0.0"
   }
 }

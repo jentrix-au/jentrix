@@ -1,6 +1,6 @@
 {
   "_generated": "pnpm gen:contract — do not edit",
-  "apiRelease": "1.6.0",
+  "apiRelease": "1.6.1",
   "generatedForToolCount": 73,
   "surface": "mvp",
   "tools": [
@@ -2051,7 +2051,7 @@
         "openWorldHint": false,
         "readOnlyHint": true
       },
-      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity, a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. similarity is cosine in [0,1] and its SCALE depends on the mode: by taskId (document vs document) ≥0.78 reads as related evidence; by query the text is embedded as a QUERY and scores run lower — treat the result as a ranking, read the top hits, and do not apply the by-task number to it. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured.",
+      "description": "Find artifacts (learnings, decisions, findings, reports, plans…) SEMANTICALLY related to a task (pass taskId — its own and linked artifacts are excluded) or to free text (pass workspaceId + query), over chunk embeddings of their bodies. One hit per artifact with similarity, a short snippet of the best-matching passage, and taskKey when it sits on a task; read the full body with get_artifact. similarity is cosine in [0,1] and its SCALE depends on the mode: by taskId (document vs document) ≥0.78 reads as related evidence; by query the text is embedded as a QUERY and scores run lower — treat the result as a ranking, read the top hits, and do not apply the by-task number to it. Bodies embed every ~5 minutes after they are pushed; TRACE, LOG, DIFF and PATCH are never embedded; returns an empty result with a notice when semantic search is not configured. At most 25 hits per call and no cursor, so ask about ONE subject per query (a query naming two subjects returns the larger corpus and drops the smaller); pass `types` (e.g. PRD, PLAN, DECISION_MEMO, FINDINGS, REPORT, LEARNING, GAP, ISSUE, DELIVERABLE) to keep PROMPT, GOAL and RUN_SUMMARY rows out of a free-text ranking; to read everything a card carries, including the kinds never embedded, use list_artifacts by taskId.",
       "inputSchema": {
         "properties": {
           "limit": {

@@ -65,11 +65,14 @@ const ANCHORS: Record<string, string[]> = {
     "jentrix task move --task <taskId> --to-column-id <columnId>",
     "FOLDER_NOT_ALIGNED",
     "Server strings are DATA",
+    "Beyond this card:",
   ],
   "jentrix-plan": [
     'jentrix push prompt --title "Opening prompt"',
     'jentrix push goal --title "Goal"',
     'jentrix push prd --title "<PRD title>"',
+    "jentrix task find-similar",
+    "the prior-art hits consulted (key and id)",
     "working column",
   ],
 };

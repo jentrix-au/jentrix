@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/cli",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Command-line client for the Jentrix MCP surface (jentrix tool <name>, generated noun-verb commands).",
   "keywords": [
     "jentrix",
@@ -83,7 +83,7 @@
     "typescript": "^5"
   },
   "jentrix": {
-    "behaviorRevision": "2026.09.13-3",
+    "behaviorRevision": "2026.09.14-1",
     "semanticSchemaRevision": 1,
     "hosts": [
       "claude",

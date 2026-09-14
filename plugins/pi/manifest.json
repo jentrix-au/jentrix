@@ -1,6 +1,6 @@
 {
   "name": "jentrix",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "host": "pi",
   "description": "Connect Pi sessions to Jentrix: seven /jentrix-* extension commands that inject the workflow as a marked custom message, and a lifecycle + token-receipt ledger the Jentrix CLI's session host reads.",
   "entry": "src/index.js",

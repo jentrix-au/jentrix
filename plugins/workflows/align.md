@@ -48,10 +48,21 @@ wizard; a Project is an optional task label and is never part of it).
    round's reasoning lives, its artifacts are the context you would otherwise
    reconstruct from scratch, and a related learning is a mistake you do not
    have to make twice — `jentrix artifact get --artifact-id <id>` reads one in
-   full. If it prints `no links · no artifacts · no comments · no related
-   evidence`, the card has nothing to give and you stop looking — that single
-   line is the answer, not an invitation to run `task get`, `task search` and
-   `comment list` to confirm it.
+   full.
+
+   The block is five rows about THIS card. When the question is a subject —
+   what the workspace already knows about billing, about a limiter, about a
+   migration — use the `Beyond this card:` line the block ends with:
+   `jentrix artifact find-related --workspace <id> --query "<one subject>"`
+   with the evidence kinds it names. One subject per query (a query naming
+   two returns the larger corpus and drops the smaller); at most 25 hits and
+   no next page; scores on the query scale, a ranking to read from the top,
+   not the 78 % of the block. Everything a card carries, the diffs and logs
+   recall never embeds included, is `jentrix artifact list --workspace <id>
+   --task <taskId>`. When the card prints `no links · no artifacts · no
+   comments · no related evidence`, that line closes the card — the subject
+   query beneath it is the one next step, and `task get`, `task search` and
+   `comment list` sweeps are still not.
 
 Notes for you (the assistant):
 
