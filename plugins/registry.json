@@ -1,6 +1,6 @@
 {
   "registryVersion": 1,
-  "behaviorRevision": "2026.09.13-3",
+  "behaviorRevision": "2026.09.14-1",
   "semanticSchemaRevision": 1,
   "hosts": {
     "claude": {

@@ -64,7 +64,17 @@ task deep. This command extends the same rule to the rest.
 2. Read the board's columns:
    `jentrix column list --board <boardId> --json`. The first column is the
    normal home for new work unless the operator says otherwise.
-3. Draft, in your own analysis and NOT yet on the board:
+3. Before drafting, ask the workspace once per subject the prompt names:
+   `jentrix task find-similar --workspace <id> --query "<subject>"` for cards
+   that already exist (a strong hit is a card to align to or link as
+   DUPLICATES, not a title to propose again) and `jentrix artifact
+   find-related --workspace <id> --query "<subject>" --limit 25 --types PRD
+   --types PLAN --types DECISION_MEMO --types FINDINGS --types REPORT --types
+   LEARNING --types GAP --types ISSUE --types DELIVERABLE` for prior art.
+   Two subjects, two queries. Name the hits you used, by key and id, in the
+   PLAN artifact.
+
+   Draft, in your own analysis and NOT yet on the board:
    - **one goal sentence** — what "done" means for this work, and how it will
      be judged;
    - **1–4 task titles**, each a unit of work someone could pick up alone.
@@ -89,7 +99,8 @@ task deep. This command extends the same rule to the rest.
      declined every card: `jentrix push plan --title "Plan"` with, on stdin,
      the goal sentence, each proposed task title marked `approved` /
      `pending` / `declined`, the ids and keys of the cards that were
-     created, and the column they landed in. A plan with every title
+     created, the column they landed in, and the prior-art hits consulted
+     (key and id) or `none`. A plan with every title
      `pending` is a true record of a headless run; a session with no PLAN
      artifact has no record that a decomposition happened at all.
 6. Report the created ids and keys back to the operator, and say which task

@@ -410,6 +410,7 @@ export async function runSessionAlign(
         for (const line of renderRelatedEvidence(
           relatedArtifacts,
           relatedNotice,
+          taskId ? { workspaceId: binding.workspaceId, taskId } : undefined,
         ))
           deps.writeOut(line);
       }

@@ -1,0 +1,87 @@
+{
+  "recordVersion": 1,
+  "id": "2026-09-14-jen-543-recall-guidance",
+  "issue": "JEN-543",
+  "title": "Subject recall guidance in the evidence footer and align/plan workflows",
+  "behaviors": [
+    "P02",
+    "P03",
+    "P15",
+    "P16"
+  ],
+  "base": {
+    "revision": "cf63e1e52826b58bc75d0554f52ff6e066a0b7a6"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "README.md",
+    "package.json",
+    "plugins/claude/.claude-plugin/plugin.json",
+    "plugins/claude/commands/jentrix-align.md",
+    "plugins/claude/commands/jentrix-plan.md",
+    "plugins/claude/package.json",
+    "plugins/codex/package.json",
+    "plugins/codex/plugins/jentrix/.codex-plugin/plugin.json",
+    "plugins/codex/plugins/jentrix/skills/jentrix-align/SKILL.md",
+    "plugins/codex/plugins/jentrix/skills/jentrix-plan/SKILL.md",
+    "plugins/opencode/commands/jentrix-align.md",
+    "plugins/opencode/commands/jentrix-plan.md",
+    "plugins/opencode/manifest.json",
+    "plugins/opencode/package.json",
+    "plugins/pi/commands/jentrix-align.md",
+    "plugins/pi/commands/jentrix-plan.md",
+    "plugins/pi/manifest.json",
+    "plugins/pi/package.json",
+    "plugins/registry.json",
+    "plugins/workflows/align.md",
+    "plugins/workflows/plan.md",
+    "src/client.ts",
+    "src/commands/task-context.ts",
+    "src/session/alignment.ts",
+    "src/session/related-evidence.ts",
+    "test/folder-binding.test.ts",
+    "test/plugin-parity.test.ts",
+    "test/related-evidence.test.ts",
+    "test/task-context.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/related-evidence.test.ts",
+        "test/task-context.test.ts",
+        "test/folder-binding.test.ts",
+        "test/plugin-parity.test.ts"
+      ]
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/related-evidence.test.ts",
+        "test/task-context.test.ts",
+        "test/folder-binding.test.ts",
+        "test/plugin-parity.test.ts"
+      ]
+    },
+    "opencode": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/related-evidence.test.ts",
+        "test/task-context.test.ts",
+        "test/folder-binding.test.ts",
+        "test/plugin-parity.test.ts"
+      ]
+    },
+    "pi": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/related-evidence.test.ts",
+        "test/task-context.test.ts",
+        "test/folder-binding.test.ts",
+        "test/plugin-parity.test.ts"
+      ]
+    }
+  }
+}

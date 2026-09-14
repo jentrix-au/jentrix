@@ -216,6 +216,7 @@ export function renderContext(bundle: ContextBundle): string {
   const links = linkLines(task);
   const subtasks = rows(task, "subtasks");
   const { artifacts, comments, related, unavailable } = bundle;
+  const context = { workspaceId: str(task.workspaceId), taskId: str(task.id) };
 
   // D3/AC2.3 — a card with nothing to discover says so in ONE line, so the
   // agent stops looking instead of spending three more calls proving it.
@@ -233,6 +234,7 @@ export function renderContext(bundle: ContextBundle): string {
       related === null
         ? "no links · no artifacts · no comments"
         : "no links · no artifacts · no comments · no related evidence",
+      ...renderRelatedEvidence(related, undefined, context).slice(1),
     );
     return lines.join("\n");
   }
@@ -256,7 +258,7 @@ export function renderContext(bundle: ContextBundle): string {
   }
   // Semantic recall: after the card's OWN artifacts, what other work said —
   // the same block `session align` prints, rendered by the same function.
-  const evidence = renderRelatedEvidence(related, bundle.relatedNotice);
+  const evidence = renderRelatedEvidence(related, bundle.relatedNotice, context);
   if (evidence.length) lines.push("", ...evidence);
   if (comments.length) {
     lines.push("", `comments (last ${comments.length}):`);

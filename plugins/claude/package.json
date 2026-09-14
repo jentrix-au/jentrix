@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/plugin-claude",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "The official Jentrix plugin for Claude Code: connected-session commands and trusted lifecycle hooks, materialized by the Jentrix CLI (jentrix plugin install claude).",
   "keywords": [
     "jentrix",
@@ -34,9 +34,9 @@
   },
   "jentrix": {
     "host": "claude",
-    "behaviorRevision": "2026.09.13-3",
+    "behaviorRevision": "2026.09.14-1",
     "semanticSchemaRevision": 1,
-    "resourceDigest": "20c6a5e7879d76f1ab52622dd2aa8c05e0d22809db29f05964b3474d40bb6a1f",
-    "cliRange": ">=0.11.0 <1.0.0"
+    "resourceDigest": "53db57d253d517ee4ef398b2459e250251c0bb5726010a8b4589011e68ab6794",
+    "cliRange": ">=0.11.1 <1.0.0"
   }
 }

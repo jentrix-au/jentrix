@@ -1,6 +1,6 @@
 {
   "name": "@jentrix/plugin-pi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The official Jentrix package for Pi: connected-session extension commands and the lifecycle/token-receipt ledger the Jentrix CLI's session host reads (jentrix plugin install pi).",
   "keywords": [
     "jentrix",
@@ -51,9 +51,9 @@
   },
   "jentrix": {
     "host": "pi",
-    "behaviorRevision": "2026.09.13-3",
+    "behaviorRevision": "2026.09.14-1",
     "semanticSchemaRevision": 1,
-    "resourceDigest": "115945bd3f9d211f99ac37b4cc868b16e53972d8d14da237e81ac490b4ab41a4",
-    "cliRange": ">=0.11.0 <1.0.0"
+    "resourceDigest": "a88fae742ac90d8f9b182044dd62708e3bf85961986ab1c39b8c58cbd9b83d63",
+    "cliRange": ">=0.11.1 <1.0.0"
   }
 }

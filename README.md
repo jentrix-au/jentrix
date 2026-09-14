@@ -76,6 +76,11 @@ workspace and are checked against the returned identity. `session claude` also
 supports foreground launch; Codex uses connect only. Capture and skeleton
 preferences are preserved unless you explicitly change them.
 
+`session align` and `task context` close their Related evidence block with a
+`Beyond this card:` line for a subject query with nine evidence kinds, the
+25-hit ceiling, and a command to list everything on the card; fresh cards
+print the same recipe beneath their one-line summary.
+
 The product CLI does not run Ops commands. An unreadable bundled tool manifest
 refuses raw tool calls with a reinstall instruction. See the exact migration
 refusals and remaining thin aliases in [compatibility](./docs/compatibility.md#local-command-migrations).

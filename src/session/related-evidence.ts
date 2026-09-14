@@ -26,6 +26,7 @@
  * without reading server code. They are the ONE place the client states them;
  * if the server moves them, this file is what a CLI release updates.
  */
+// By-task recall keeps embeddable round evidence, including session summaries.
 export const RELATED_EVIDENCE_TYPES = [
   "PR",
   "BRANCH",
@@ -50,6 +51,19 @@ export const RELATED_EVIDENCE_TYPES = [
   "PRD",
   "GAP",
   "ISSUE",
+];
+
+// Query recall omits prompts, goals and summaries with these measured kinds.
+export const QUERY_EVIDENCE_TYPES = [
+  "PRD",
+  "PLAN",
+  "DECISION_MEMO",
+  "FINDINGS",
+  "REPORT",
+  "LEARNING",
+  "GAP",
+  "ISSUE",
+  "DELIVERABLE",
 ];
 
 /** At most this many rows ride an align result or the context block. */
@@ -136,20 +150,29 @@ function snippetLine(snippet: string | null): string | null {
 
 /**
  * Render the block. `null` hits → no lines (the field was absent: an older
- * server). Empty hits → one line, with the server's reason when it gave one,
+ * server). Empty hits → a none line, with the server's reason when it gave one,
  * so a fresh or unembedded card reads as "none — no embedding yet" rather
  * than as silence. Otherwise a header, then one row per artifact — kind, id,
  * title, similarity, the card it sits on — and its snippet indented beneath,
  * so an agent can decide whether to `artifact get` it before reading code.
+ * A card context adds the same two-line subject-query recipe to either block.
  */
 export function renderRelatedEvidence(
   hits: RelatedArtifactHit[] | null,
   notice?: string,
+  context?: { workspaceId: string; taskId: string },
 ): string[] {
   if (hits === null) return [];
+  const footer = context
+    ? [
+        `  Beyond this card: jentrix artifact find-related --workspace ${context.workspaceId} --query "<one subject>" --limit 25 ${QUERY_EVIDENCE_TYPES.map((type) => `--types ${type}`).join(" ")}`,
+        `  One subject per query; 25 hits is the ceiling; scores are on the query scale, a ranking to read from the top. Everything on a card: jentrix artifact list --workspace ${context.workspaceId} --task ${context.taskId}`,
+      ]
+    : [];
   if (hits.length === 0) {
     return [
       notice ? `Related evidence: none — ${notice}` : "Related evidence: none",
+      ...footer,
     ];
   }
   const lines = [`Related evidence (${hits.length}):`];
@@ -163,5 +186,6 @@ export function renderRelatedEvidence(
     if (snippet) lines.push(`    ${snippet}`);
   }
   if (notice) lines.push(`  (${notice})`);
+  lines.push(...footer);
   return lines;
 }

@@ -130,6 +130,8 @@ test("task context reads find_related_artifacts by task in the same round and pr
   // …and the 0.70 row is not printed: one block, one meaning (JEN-522).
   assert.ok(!out.includes("art_8"), out);
   assert.ok(out.includes("Related evidence (1):"), out);
+  assert.match(out, /\n  Beyond this card: jentrix artifact find-related --workspace ws_1 --query "<one subject>" --limit 25 --types PRD/);
+  assert.match(out, /\n  One subject per query;.*jentrix artifact list --workspace ws_1 --task task_42$/);
   // One round: the three side reads were issued together after get_task.
   assert.deepEqual(
     caller.calls.map((c) => c.name),
@@ -143,6 +145,11 @@ test("task context reads find_related_artifacts by task in the same round and pr
   );
   const bundle = JSON.parse(jd.out.join("\n")) as Record<string, unknown>;
   assert.deepEqual(bundle.related, [HIT]);
+  assert.equal(jd.out.join("\n"), JSON.stringify({
+    task: TASK,
+    artifacts: [{ id: "art_1", type: "PLAN", title: "Plan for the trim" }],
+    comments: [], related: [HIT], unavailable: [],
+  }, null, 2));
 });
 
 test("a fresh card says 'no related evidence' in its one line; the notice rides beside an empty block", async () => {
@@ -159,8 +166,10 @@ test("a fresh card says 'no related evidence' in its one line; the notice rides 
   assert.equal(await runTaskContext({ task: "task_42" }, d), EXIT_CODES.OK);
   assert.match(
     d.out.join("\n"),
-    /no links · no artifacts · no comments · no related evidence$/,
+    /no links · no artifacts · no comments · no related evidence\n  Beyond this card:/,
   );
+  assert.match(d.out.join("\n"), /\n  One subject per query;.*--workspace ws_1 --task task_42$/);
+  assert.doesNotMatch(d.out.join("\n"), /Related evidence: none/);
   const jd = deps(fresh);
   await runTaskContext({ task: "task_42", json: true }, jd);
   const bundle = JSON.parse(jd.out.join("\n")) as Record<string, unknown>;
@@ -189,7 +198,7 @@ test("a fresh card says 'no related evidence' in its one line; the notice rides 
   await runTaskContext({ task: "task_42" }, od);
   assert.match(
     od.out.join("\n"),
-    /Related evidence: none — Semantic search is not configured/,
+    /Related evidence: none — Semantic search is not configured[^\n]*\n  Beyond this card:/,
   );
 });
 
@@ -206,7 +215,7 @@ test("a failed related read is named under 'not read', never rendered as none (o
   assert.equal(await runTaskContext({ task: "task_42" }, d), EXIT_CODES.OK);
   const out = d.out.join("\n");
   assert.doesNotMatch(out, /no related evidence/);
-  assert.doesNotMatch(out, /Related evidence:/);
+  assert.doesNotMatch(out, /Related evidence:|Beyond this card:|One subject per query/);
   assert.match(
     out,
     /not read: find_related_artifacts: Tool find_related_artifacts not found/,
