@@ -14,11 +14,13 @@ Commands:
   column          list, manage
   comment         create, delete, list, update
   complete        agent-session
+  conversation    get, link, list
   invitation      list
   invite          member
   label           list, manage
   linear          import-team, list-teams, push-board, sync-board
   link            add, list, remove
+  log             conversation-message
   member          list, remove, set-role
   project         add-link, create, get, list, remove-link, resolve-for-repo, … (7 commands)
   resume          agent-session
