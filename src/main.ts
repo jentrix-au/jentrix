@@ -81,6 +81,7 @@ import { registerFolderCommand, runFolderAlign } from "./commands/folder";
 import { registerMcpCommand } from "./commands/mcp";
 import { registerTaskContextCommands } from "./commands/task-context";
 import { registerTaskProjectCommand } from "./commands/task-project";
+import { registerProjectCommands } from "./commands/project";
 import { registerMintIssueCommand, registerPushCommand } from "./commands/push";
 import { registerArtifactRegisterCommand } from "./commands/artifact-register";
 import { registerSetupCommand } from "./commands/setup";
@@ -468,6 +469,9 @@ registerSnapshotCommand(sessionCommand, sessionDeps, onExit);
 registerFolderCommand(program, sessionDeps, onExit);
 registerAlignCommand(program, sessionDeps, onExit);
 registerTaskProjectCommand(program, sessionDeps, onExit);
+// JEN-568 — `project link|unlink|status` (linked workspaces); the generated
+// project tools join the same group below.
+registerProjectCommands(program, sessionDeps, onExit);
 // D3/D4 — `task context` and `subtask list` reuse the `task`/`subtask` groups
 // (hand-registered here, extended by the generated tree below).
 registerTaskContextCommands(program, sessionDeps, onExit);

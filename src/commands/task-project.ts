@@ -20,31 +20,38 @@ import {
 import { inspectCheckout, reportError, withCaller } from "../session/runtime";
 import { type SessionCommandDeps } from "../session/deps";
 
-async function resolveProject(
+/**
+ * An id resolves directly; a slug goes through the workspace list.
+ * `workspaceId` is asked for only when the slug fallback runs, so an id works
+ * outside a bound checkout. `record` is the `get_project` payload when the id
+ * path answered.
+ */
+export async function resolveProject(
   caller: SessionToolCaller,
-  workspaceId: string,
+  workspaceId: () => Promise<string>,
   wanted: string,
-): Promise<{ id: string; name: string }> {
+): Promise<{ id: string; name: string; record?: Record<string, unknown> }> {
   const trimmed = wanted.trim();
-  // An id resolves directly; a slug goes through the workspace list.
   try {
     const project = await callStructured(caller, "get_project", {
       projectId: trimmed,
     });
-    const row = (project.project ?? project) as { id?: string; name?: string };
+    const row = (project.project ?? project) as Record<string, unknown>;
     if (typeof row.id !== "string")
       throw new ToolCallError(
         "get_project returned no project identity",
         "INTERNAL",
       );
-    return { id: row.id, name: String(row.name ?? row.id) };
+    return { id: row.id, name: String(row.name ?? row.id), record: row };
   } catch (error) {
     // Only an actual lookup miss permits slug fallback. Auth/transport failures
     // must retain their real error and never trigger a second lookup.
     if (!(error instanceof ToolCallError) || error.code !== "NOT_FOUND")
       throw error;
   }
-  const listed = await callStructured(caller, "list_projects", { workspaceId });
+  const listed = await callStructured(caller, "list_projects", {
+    workspaceId: await workspaceId(),
+  });
   if (
     !Array.isArray(listed.projects) ||
     !listed.projects.every(
@@ -71,7 +78,7 @@ async function resolveProject(
   );
   if (!match) {
     throw new UsageError(
-      `--project ${wanted} matches no project in this task's workspace (slugs: ${
+      `--project ${wanted} matches no project in this workspace (slugs: ${
         rows.map((p) => p.slug).join(", ") || "none"
       })`,
       EXIT_CODES.NOT_FOUND,
@@ -105,7 +112,7 @@ export async function runTaskProject(
       const task = await resolveTask(caller, flags.task!, workspaceId);
       const project = await resolveProject(
         caller,
-        task.workspaceId,
+        async () => task.workspaceId,
         flags.project!,
       );
       await callStructured(
