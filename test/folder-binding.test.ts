@@ -39,6 +39,7 @@ import { runSessionStatus } from "../src/session/status";
 import { writeAlignmentMarker } from "../src/session/state";
 import { ToolCallError } from "../src/tool-client";
 import { runTaskProject } from "../src/commands/task-project";
+import { runProjectLink, runProjectStatus } from "../src/commands/project";
 import type { SessionCommandDeps } from "../src/session/deps";
 import type { SessionToolCaller } from "../src/tool-client";
 
@@ -862,6 +863,152 @@ test("task project add resolves an ID + slug and links idempotently without fold
     { projectId: "prj_l", targetType: "TASK", targetId: "task_9" },
   ]);
   assert.doesNotMatch(d.out.join("\n"), /governed-worker/);
+});
+
+// --- project workspace links (JEN-568) ---------------------------------------
+
+test("project link resolves a slug in the bound workspace and passes the workspace slug through as targetId", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const caller = fakeCaller({
+    get_project: () => {
+      throw new ToolCallError("not an id", "NOT_FOUND");
+    },
+    list_projects: (args) => {
+      assert.equal(args.workspaceId, "ws_1");
+      return { projects: [{ id: "prj_mk", name: "MK AI", slug: "mk-ai" }] };
+    },
+    add_project_link: () => ({ ok: true }),
+  });
+  const d = deps(caller, dir);
+  const code = await runProjectLink(
+    "link",
+    { project: "mk-ai", workspace: "evolut-ai" },
+    d,
+  );
+  assert.equal(code, EXIT_CODES.OK, d.err.join("\n"));
+  assert.deepEqual(caller.calls.at(-1), {
+    name: "add_project_link",
+    args: { projectId: "prj_mk", targetType: "WORKSPACE", targetId: "evolut-ai" },
+  });
+  assert.match(d.out.join("\n"), /evolut-ai linked to project MK AI/);
+});
+
+test("project unlink by project id needs no folder binding; server refusals go to stderr with their exit code", async () => {
+  const caller = fakeCaller({
+    get_project: () => ({ id: "prj_mk", name: "MK AI" }),
+    remove_project_link: () => {
+      throw new ToolCallError("needs ADMIN", "FORBIDDEN");
+    },
+  });
+  const d = deps(caller, root(), {
+    git: async () => {
+      throw new Error("an id never inspects the checkout");
+    },
+  });
+  const code = await runProjectLink(
+    "unlink",
+    { project: "prj_mk", workspace: "ws_evolut" },
+    d,
+  );
+  assert.equal(code, EXIT_CODES.FORBIDDEN);
+  assert.deepEqual(caller.calls.at(-1)?.args, {
+    projectId: "prj_mk",
+    targetType: "WORKSPACE",
+    targetId: "ws_evolut",
+  });
+  assert.match(d.err.join("\n"), /needs ADMIN/);
+  assert.deepEqual(d.out, []);
+});
+
+test("project link requires both flags before connecting", async () => {
+  const d = deps(fakeCaller({}), root(), {
+    connect: async () => {
+      throw new Error("must not connect");
+    },
+  });
+  assert.equal(
+    await runProjectLink("link", { project: "mk-ai" }, d),
+    EXIT_CODES.INVALID_INPUT,
+  );
+  assert.match(d.err.join("\n"), /--workspace <id-or-slug>/);
+});
+
+test("project status prints each linked workspace's boards and columns, and 'no access' (never zeros) for a non-member workspace", async () => {
+  const linkedWorkspaces = [
+    {
+      workspaceId: "ws_a",
+      label: null,
+      access: true,
+      name: "Alliance 1892",
+      slug: "alliance-1892",
+      taskCount: 7,
+      lastUpdatedAt: "2026-10-21T07:52:40.837Z",
+      boards: [
+        {
+          boardId: "b1",
+          name: "Delivery",
+          slug: "delivery",
+          taskCount: 7,
+          columns: [
+            { columnId: "c1", name: "Backlog", taskCount: 4 },
+            { columnId: "c2", name: "In progress", taskCount: 3 },
+          ],
+        },
+      ],
+    },
+    {
+      workspaceId: "ws_e",
+      label: null,
+      access: false,
+      name: null,
+      slug: null,
+      taskCount: null,
+      lastUpdatedAt: null,
+      boards: [],
+    },
+  ];
+  const caller = fakeCaller({
+    get_project: () => ({ id: "prj_mk", name: "MK AI", linkedWorkspaces }),
+  });
+  const d = deps(caller, root());
+  assert.equal(await runProjectStatus({ project: "prj_mk" }, d), 0);
+  const out = d.out.join("\n");
+  assert.match(out, /^Project MK AI — 2 linked workspaces$/m);
+  assert.match(
+    out,
+    /^Alliance 1892 \(alliance-1892\) · 7 tasks · last update 2026-10-21 07:52 UTC$/m,
+  );
+  assert.match(out, /^ {2}Delivery \(delivery\) · 7 tasks$/m);
+  assert.match(out, /^ {4}Backlog 4 · In progress 3$/m);
+  assert.match(out, /^ws_e · no access/m);
+  assert.doesNotMatch(out, /null|ws_e.*\b0\b/);
+  assert.equal(caller.calls.length, 1, "the id path reuses get_project");
+
+  const j = deps(caller, root());
+  assert.equal(await runProjectStatus({ project: "prj_mk", json: true }, j), 0);
+  assert.deepEqual(JSON.parse(j.out.join("\n")).linkedWorkspaces, linkedWorkspaces);
+});
+
+test("project status by slug re-reads the rollup by id; no links prints the link command", async () => {
+  const dir = root();
+  writeFolderBinding(dir, BINDING);
+  const caller = fakeCaller({
+    get_project: (args) => {
+      if (args.projectId !== "prj_mk") throw new ToolCallError("no", "NOT_FOUND");
+      return { id: "prj_mk", name: "MK AI", linkedWorkspaces: [] };
+    },
+    list_projects: () => ({
+      projects: [{ id: "prj_mk", name: "MK AI", slug: "mk-ai" }],
+    }),
+  });
+  const d = deps(caller, dir);
+  assert.equal(await runProjectStatus({ project: "mk-ai" }, d), 0);
+  assert.deepEqual(
+    caller.calls.map((c) => c.name),
+    ["get_project", "list_projects", "get_project"],
+  );
+  assert.match(d.out.join("\n"), /links no workspaces\. Link one: jentrix project link/);
 });
 
 test("session align re-reads and retries ONCE when a concurrent writer wins the CAS between the read and the align (JEN-537, OpenCode pack C: the host's own beat)", async () => {

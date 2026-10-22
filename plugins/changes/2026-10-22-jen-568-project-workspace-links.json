@@ -1,0 +1,59 @@
+{
+  "recordVersion": 1,
+  "id": "2026-10-22-jen-568-project-workspace-links",
+  "issue": "JEN-568",
+  "title": "`jentrix project link|unlink|status` — link another workspace to a project and print its live rollup (contract 1.8.0)",
+  "behaviors": [
+    "P08"
+  ],
+  "base": {
+    "revision": "644d04128ae34a403e9237000ba549aa65e57f20"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "README.md",
+    "contract.json",
+    "docs/contract/mvp.json",
+    "package.json",
+    "plugins/changes/2026-10-22-jen-568-project-workspace-links.json",
+    "src/client.ts",
+    "src/commands/project.ts",
+    "src/commands/task-project.ts",
+    "src/main.ts",
+    "surface.json",
+    "test/folder-binding.test.ts",
+    "test/golden/help-root.txt"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/folder-binding.test.ts",
+        "test/command-regressions.test.ts"
+      ]
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/folder-binding.test.ts",
+        "test/command-regressions.test.ts"
+      ]
+    },
+    "opencode": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/folder-binding.test.ts",
+        "test/command-regressions.test.ts"
+      ]
+    },
+    "pi": {
+      "disposition": "shared-fix-applied",
+      "evidence": [
+        "test/folder-binding.test.ts",
+        "test/command-regressions.test.ts"
+      ]
+    }
+  }
+}

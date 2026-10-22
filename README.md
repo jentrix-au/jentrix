@@ -81,6 +81,24 @@ preferences are preserved unless you explicitly change them.
 25-hit ceiling, and a command to list everything on the card; fresh cards
 print the same recipe beneath their one-line summary.
 
+## Linked workspaces
+
+A project can summarize other workspaces — one per engagement, say — without
+copying anything across them:
+
+```bash
+jentrix project link   --project <id-or-slug> --workspace <id-or-slug>
+jentrix project status --project <id-or-slug>   # --json for the raw rollup
+jentrix project unlink --project <id-or-slug> --workspace <id-or-slug>
+```
+
+Linking needs ADMIN in both workspaces, and the project's own workspace is
+refused; both are the server's checks. `status` reads every linked workspace
+live, under your own membership: its name, task count and last update, then
+each board with per-column task counts. A workspace you are not a member of
+prints `no access`, never zero counts. Project slugs resolve in the folder's
+bound workspace; project IDs work anywhere.
+
 The product CLI does not run Ops commands. An unreadable bundled tool manifest
 refuses raw tool calls with a reinstall instruction. See the exact migration
 refusals and remaining thin aliases in [compatibility](./docs/compatibility.md#local-command-migrations).
