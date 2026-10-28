@@ -14,9 +14,9 @@
  * - boolean            → `--foo` (negatable: C2.2 also mounts `--no-foo`)
  * - enum / const       → `--foo <choice>`, choices in help + validation
  * - array of primitives → repeatable `--foo <v>` (coercion accumulates)
- * - nullable (`anyOf: [T, null]` — the "pass null to clear" idiom) → T's
- *   flag(s) plus a paired `--clear-foo` that sends null; mutually exclusive,
- *   enforced by `argsFromFlagValues`
+ * - nullable (`anyOf: [T, null]`, or `type: [T, "null"]` — the "pass null
+ *   to clear" idiom) → T's flag(s) plus a paired `--clear-foo` that sends
+ *   null; mutually exclusive, enforced by `argsFromFlagValues`
  * - other `anyOf`/`oneOf` → a union whose branches are ALL primitive and
  *   string-free coerces by trying each branch IN SCHEMA ORDER; the first
  *   branch that coerces wins (deterministic — the order is echoed in the
@@ -730,7 +730,15 @@ export function buildToolFlags(
     // is classified normally and a paired `--clear-foo` is added.
     let nullable = false;
     let target: unknown = propSchema;
-    if (isRecord(propSchema)) {
+    if (isRecord(propSchema) && Array.isArray(propSchema.type)) {
+      // The same idiom as a type array: zod 4.6 (server contract 1.8.1) writes
+      // a nullable primitive as `type: [T, "null"]`, not `anyOf`.
+      const rest = propSchema.type.filter((t) => t !== "null");
+      if (rest.length < propSchema.type.length && rest.length > 0) {
+        nullable = true;
+        target = { ...propSchema, type: rest.length === 1 ? rest[0] : rest };
+      }
+    } else if (isRecord(propSchema)) {
       const branches = branchesOf(propSchema);
       if (branches) {
         const rest = branches.filter(

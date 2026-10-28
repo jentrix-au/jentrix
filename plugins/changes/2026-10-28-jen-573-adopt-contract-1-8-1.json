@@ -1,0 +1,41 @@
+{
+  "recordVersion": 1,
+  "id": "2026-10-28-jen-573-adopt-contract-1-8-1",
+  "issue": "JEN-573",
+  "title": "Adopt server contract 1.8.1 (zod 4.6 re-serialization) and map `type: [T, \"null\"]` nullables to the same `--foo` / `--clear-foo` flag pair",
+  "behaviors": ["P08"],
+  "base": {
+    "revision": "55d0be0e974b9befcaa3a8ca77c4c32c39e40f40"
+  },
+  "candidate": {
+    "revision": "working-tree"
+  },
+  "paths": [
+    "contract.json",
+    "docs/contract/mvp.json",
+    "package.json",
+    "plugins/changes/2026-10-28-jen-573-adopt-contract-1-8-1.json",
+    "src/client.ts",
+    "src/commands/flags.ts",
+    "surface.json",
+    "test/flags.test.ts"
+  ],
+  "hosts": {
+    "claude": {
+      "disposition": "shared-fix-applied",
+      "evidence": ["test/flags.test.ts", "test/build.test.ts"]
+    },
+    "codex": {
+      "disposition": "shared-fix-applied",
+      "evidence": ["test/flags.test.ts", "test/build.test.ts"]
+    },
+    "opencode": {
+      "disposition": "shared-fix-applied",
+      "evidence": ["test/flags.test.ts", "test/build.test.ts"]
+    },
+    "pi": {
+      "disposition": "shared-fix-applied",
+      "evidence": ["test/flags.test.ts", "test/build.test.ts"]
+    }
+  }
+}
