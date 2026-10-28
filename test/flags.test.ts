@@ -226,6 +226,32 @@ describe("flags — mapping rules", () => {
     });
   });
 
+  it('nullable type:[T, "null"] (zod 4.6, contract 1.8.1) → the same `--foo` + `--clear-foo` pair', () => {
+    const { descriptors, warnings } = buildToolFlags(
+      toolWith({
+        startDirty: {
+          type: ["boolean", "null"],
+          description: "Was the tree dirty at start?",
+        },
+      }),
+    );
+    assert.deepEqual(warnings, []);
+    assert.deepEqual(
+      descriptors.map((d) => [d.role, d.flag]),
+      [
+        ["value", "--start-dirty"],
+        ["clear", "--clear-start-dirty"],
+      ],
+    );
+    assert.deepEqual(argsFromFlagValues(descriptors, { startDirty: true }), {
+      startDirty: true,
+    });
+    assert.deepEqual(
+      argsFromFlagValues(descriptors, { clearStartDirty: true }),
+      { startDirty: null },
+    );
+  });
+
   it("nullable enum keeps its choices on the value flag (update_ticket.severity shape)", () => {
     const { descriptors } = buildToolFlags(
       toolWith({
